@@ -3,3 +3,6 @@ bot para telegram:
     de binance y asi automatizar ciertas tareas.
 
 Tareas:
+    - calcular cambio VES --> COP
+    - crear iamgen con las tasas de cambio
+    - calculos para arbitrahje
