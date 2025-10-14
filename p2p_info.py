@@ -3,27 +3,32 @@
 import datetime
 import json
 import time
-
 import pytz
 import requests
+import os
+from dotenv import load_dotenv
 
+# ==============================
+# Cargar variables del entorno (.env)
+# ==============================
+load_dotenv()
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID = os.getenv("CHAT_ID")
+
+if not TELEGRAM_TOKEN or not CHAT_ID:
+    raise ValueError("❌ Error: Faltan variables TELEGRAM_TOKEN o CHAT_ID en el archivo .env")
+
+# ==============================
+# Función principal para obtener precios P2P
+# ==============================
 def buy_copusdt():
     url = 'https://p2p.binance.com/bapi/c2c/v2/friendly/c2c/adv/search'
 
     headers = {
         "Accept": "*/*",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Accept-Language": "en-GB,en-US;q=0.9,en;q=0.8",
-        "Cache-Control": "no-cache",
-        "Connection": "keep-alive",
-        "Content-Length": "123",
-        "content-type": "application/json",
-        "Host": "p2p.binance.com",
-        "Origin": "https://p2p.binance.com",
-        "Pragma": "no-cache",
-        "TE": "Trailers",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0"
-        }
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+    }
 
     dataB = {
         "page": 1,
@@ -32,7 +37,7 @@ def buy_copusdt():
         "tradeType": "BUY",
         "fiat": "COP",
         "merchantCheck": False
-        }
+    }
 
     dataS = {
         "page": 1,
@@ -41,61 +46,76 @@ def buy_copusdt():
         "tradeType": "SELL",
         "fiat": "VES",
         "merchantCheck": False 
-        }
+    }
 
-    r = requests.post(url, headers=headers, json=dataB)
-    r_json = r.json()
-    datos_buy = r_json['data']
+    try:
+        # Consulta compra USDT/COP
+        r_buy = requests.post(url, headers=headers, json=dataB, timeout=10)
+        r_buy.raise_for_status()
+        datos_buy = r_buy.json().get('data', [])
+        
+        # Consulta venta USDT/VES
+        r_sell = requests.post(url, headers=headers, json=dataS, timeout=10)
+        r_sell.raise_for_status()
+        datos_sell = r_sell.json().get('data', [])
 
-    r = requests.post(url, headers=headers, json=dataS)
-    r_json = r.json()
-    datos_sell = r_json['data']
+        if len(datos_buy) < 5 or len(datos_sell) < 5:
+            return "⚠️ Datos insuficientes en Binance P2P. Intenta más tarde."
 
-    precio_cop = datos_buy[4]['adv']['price']
-    precio_ves = datos_sell[0]['adv']['price']
-    tasa1 = float(precio_cop) / float(precio_ves) * 1.05
-    tasa2 = float(precio_cop) / float(precio_ves) * 1.075
-    tasa3 = float(precio_cop) / float(precio_ves) * 1.10
+        precio_cop = float(datos_buy[4]['adv']['price'])
+        precio_ves = float(datos_sell[4]['adv']['price'])
 
-    msj = f"""COP = {precio_cop}, VES = {precio_ves},
-{round(tasa1, 2)} 5%
-{round(tasa2, 2)} 7,5%
-{round(tasa3, 2)} 10%
-         """
+        tasa1 = precio_cop / precio_ves * 1.05
+        tasa2 = precio_cop / precio_ves * 1.075
+        tasa3 = precio_cop / precio_ves * 1.10
 
-    return msj
+        msj = f"""💱 Cotización P2P Binance
+🇨🇴 COP = {precio_cop}
+🇻🇪 VES = {precio_ves}
 
+Tasas aproximadas:
+📈 5%  → {round(tasa1, 2)}
+📈 7.5% → {round(tasa2, 2)}
+📈 10% → {round(tasa3, 2)}
+"""
+        return msj
 
-def generar_mensaje():
-    return buy_copusdt()
+    except Exception as e:
+        return f"❌ Error obteniendo datos: {e}"
 
-# Definir el intervalo de tiempo en segundos entre cada mensaje
-intervalo_tiempo = 3600 #* 60 * 60  # 8 horas en segundos
-horas_programadas = [6, 10, 14, 18]
-
-while True:
-    hora_actual = datetime.datetime.now(pytz.utc)
-    bogota = pytz.timezone('America/Bogota')
-    bogota_time = hora_actual.astimezone(bogota)
-    print('activo', bogota_time)
-
-    if bogota_time.hour in horas_programadas:
-
-        msj = buy_copusdt()
-        data = {'chat_id':'-4068874959', 'text':msj}
-        url = 'https://api.telegram.org/bot6386867007:AAHgElLPR99d00OzFxvcRrIFgBl0OeTDG_g/sendMessage'
-        r = requests.post(url, data)
-        data = json.loads(r.text)
-
-        response_data = json.loads(r.text)
-
-# Verifica si el mensaje se envió correctamente
-        if response_data['ok']:
-            print('Mensaje enviado exitosamente', bogota_time)
+# ==============================
+# Enviar mensaje por Telegram
+# ==============================
+def enviar_mensaje(msj):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    data = {'chat_id': CHAT_ID, 'text': msj}
+    try:
+        r = requests.post(url, data=data, timeout=10)
+        response = r.json()
+        if response.get('ok'):
+            print("✅ Mensaje enviado exitosamente")
         else:
-            print('Error al enviar el mensaje:', response_data['description'], bogota_time)
+            print("⚠️ Error al enviar mensaje:", response.get('description'))
+    except Exception as e:
+        print(f"❌ Error al conectar con Telegram: {e}")
 
-    # Esperar el intervalo de tiempo antes de generar el siguiente mensaje
+# ==============================
+# Programa principal
+# ==============================
+if __name__ == "__main__":
+    intervalo_tiempo = 3600  # segundos
+    horas_programadas = [6, 8, 10, 14, 18, 20]
 
-    time.sleep(intervalo_tiempo)
-    
+    while True:
+        hora_actual = datetime.datetime.now(pytz.utc)
+        bogota = pytz.timezone('America/Bogota')
+        bogota_time = hora_actual.astimezone(bogota)
+        hora = bogota_time.hour
+
+        print("⏰ Activo:", bogota_time)
+
+        if hora in horas_programadas:
+            msj = buy_copusdt()
+            enviar_mensaje(msj)
+
+        time.sleep(intervalo_tiempo)
