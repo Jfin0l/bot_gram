@@ -1,7 +1,5 @@
 # p2p_info.py
 import os
-import json
-import time
 import requests
 import statistics
 import asyncio
@@ -199,7 +197,7 @@ def get_p2p_data():
         arb_ves_to_cop = (avg_cop_sell_for_arbit / avg_ves_buy_for_arbit - 1) * 100
 
     result = {
-        "timestamps": {"utc": datetime.datetime.now(datetime.UTC) ().isoformat()},
+        "timestamps": {"utc": datetime.datetime.now(datetime.UTC).isoformat()},
         "COP": {
             "promedio_buy_tasa": avg_cop_buy,
             "promedio_sell_tasa": avg_cop_sell,
@@ -360,7 +358,7 @@ def format_all(data: dict) -> str:
 
     lines = []
     lines.append("📊 *REPORTE COMPLETO P2P — BINANCE*")
-    lines.append(f"🕒 {datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(f"🕒 {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     lines.append("\n🇨🇴 COP — Mercado")
     lines.append(f"• Compra (avg): {cop['promedio_buy_tasa']:,.2f}" if cop['promedio_buy_tasa'] else "• Compra (avg): N/D")
     lines.append(f"• Venta  (avg): {cop['promedio_sell_tasa']:,.2f}" if cop['promedio_sell_tasa'] else "• Venta  (avg): N/D")
@@ -482,7 +480,7 @@ async def _job_send_task():
         app = _GLOBAL_APP_REF
         if app:
             await app.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
-            print(f"✅ Enviado job automático a {CHAT_ID} - {datetime.datetime.utcnow().isoformat()}")
+            print(f"✅ Enviado job automático a {CHAT_ID} - {datetime.datetime.now(datetime.UTC).isoformat()}")
     except Exception as e:
         print("❌ Error en job automático:", e)
 
