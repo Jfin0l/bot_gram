@@ -19,7 +19,7 @@ CONFIG = {
         "COP": {"rows": 20, "page": 2},  # usas página 2 por tu preferencia
         "VES": {"rows": 20, "page": 4}
     },
-    "horas_programadas": [6, 8, 10, 14, 17, 18, 20, 21, 22, 23],
+    "horas_programadas": [6, 8, 10, 14, 18, 20, 22],
     "intervalo_tiempo": 3600,
     "umbral_volatilidad": 3,
     "limite_outlier": 0.025,
@@ -33,8 +33,9 @@ CONFIG = {
 load_dotenv()
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
-if not TELEGRAM_TOKEN or not CHAT_ID:
-    raise ValueError("Faltan TELEGRAM_TOKEN o CHAT_ID en .env")
+OWNER_ID = os.getenv("OWNER_ID") 
+if not TELEGRAM_TOKEN or not CHAT_ID or not OWNER_ID:
+    raise ValueError("Faltan TELEGRAM_TOKEN, CHAT_ID o OWNER_ID en .env")
 
 # Scheduler global
 scheduler = AsyncIOScheduler(timezone=pytz.timezone("America/Bogota"))
@@ -289,9 +290,6 @@ def format_compact_market(fiat: str, data: dict) -> str:
 
     return "\n".join(lines)
 
-# ==============================
-# NUEVO: FORMATEADOR PARA /TASA
-# ==============================
 def format_tasa(data: dict) -> str:
     """
     Formato compacto para el comando /TASA.
@@ -302,49 +300,46 @@ def format_tasa(data: dict) -> str:
     tasas = data["tasas_remesas"]
     precios_ves_sell = data["VES"]["promedio_sell_tasa"]
     precios_cop_sell = data["COP"]["promedio_sell_tasa"]
+    precios_cop_buy = data["COP"]["promedio_buy_tasa"]
 
     # Aplicar factores
-    zelle_bs = precios_ves_sell * 0.93 if precios_ves_sell else None
-    usd_cop = precios_cop_sell * 0.95 if precios_cop_sell else None
+    zelle_bs = precios_ves_sell * 0.90 if precios_ves_sell else None
+    usd_cop_buy = precios_cop_sell * 0.95 if precios_cop_sell else None
+    usd_cop_sell = precios_cop_buy * 1.05 if precios_cop_sell else None
 
-    lines = ["💱 *TASAS ACTUALES FastMoney*"]
+    lines = ["💱 *FASTMONEY - TASAS ACTUALES*"]
     lines.append(f"🕒 {datetime.datetime.now(datetime.UTC).strftime('%Y-%m-%d %H:%M:%S UTC')}")
     lines.append("")
 
     # Tasas remesas
     lines.append("🇨🇴 COP → 🇻🇪 VES")
-    lines.append(f"• +5%  → {tasas['cop_ves_5pct']:.6f}" if tasas['cop_ves_5pct'] else "• +5%  → N/D")
-    lines.append(f"• +10% → {tasas['cop_ves_10pct']:.6f}" if tasas['cop_ves_10pct'] else "• +10% → N/D")
+    lines.append(f"• → {tasas['cop_ves_10pct']:.1f}" if tasas['cop_ves_10pct'] else "• +10% → N/D")
     lines.append("")
     lines.append("🇻🇪 VES → 🇨🇴 COP")
-    lines.append(f"• +5%  → {tasas['ves_cop_5pct']:.6f}" if tasas['ves_cop_5pct'] else "• +5%  → N/D")
+    lines.append(f"•  → {tasas['ves_cop_5pct']:.5f}" if tasas['ves_cop_5pct'] else "• +5%  → N/D")
     lines.append("")
 
     # Agregar variables derivadas
     lines.append("🏦 *Tasas de referencia externas:*")
+    lines.append("")
     if zelle_bs:
-        lines.append(f"• Zelle → Bs.: {zelle_bs:,.2f}")
+        lines.append(f"• Zelle → Bs.: {zelle_bs:,.0f}")
     else:
         lines.append("• Zelle → Bs.: N/D")
 
-    if usd_cop:
-        lines.append(f"• USDCOP: {usd_cop:,.2f}")
+    lines.append("")
+
+    if usd_cop_buy:
+        lines.append(f"• Compra USDCOP: {usd_cop_buy:,.0f}")
     else:
-        lines.append("• USDCOP: N/D")
+        lines.append("• Compra USDCOP: N/D")
+
+    if usd_cop_sell:
+        lines.append(f"• Venta USDCOP: {usd_cop_sell:,.0f}")
+    else:
+        lines.append("• Venta USDCOP: N/D")
 
     return "\n".join(lines)
-
-
-# ==============================
-# NUEVO COMANDO: /TASA
-# ==============================
-async def cmd_tasa(update, context):
-    """Obtiene los datos actuales y muestra las tasas y referencias."""
-    await update.message.reply_text("⏳ Consultando tasas y referencias...")
-    data = await _get_data_async()
-    msg = format_tasa(data)
-    await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
-
 
 def format_arbitraje(data: dict) -> str:
     """
@@ -438,10 +433,6 @@ def format_all(data: dict) -> str:
     lines.append(f"• COP→VES: {arb['cop_to_ves_pct']:.2f}%" if arb['cop_to_ves_pct'] is not None else "• COP→VES: N/D")
     lines.append(f"• VES→COP: {arb['ves_to_cop_pct']:.2f}%" if arb['ves_to_cop_pct'] is not None else "• VES→COP: N/D")
     lines.append("")
-    lines.append("🔎 Notas:")
-    lines.append("- Promedios de remesas usan los primeros {} anuncios".format(CONFIG["filas_tasa_remesa"]))
-    lines.append("- Promedios ampliados y ponderados usan todos los anuncios descargados por CONFIG (rows).")
-    lines.append("")
     return "\n".join(lines)
 
 # ==============================
@@ -449,25 +440,55 @@ def format_all(data: dict) -> str:
 # ==============================
 
 async def cmd_start(update, context: ContextTypes.DEFAULT_TYPE):
-    texto = (
-        "👋 Hola — Bot P2P activo.\n"
-        "Comandos:\n"
-        "/TASA → Resumen COP (compacto)\n"
-        "/COP → Resumen COP (compacto)\n"
-        "/VES → Resumen VES (compacto)\n"
-        "/ARBITRAJE → Análisis de oportunidades\n"
-        "/ALL → Reporte completo\n"
-        "/ACT → Forzar actualización y enviar reporte completo\n"
-        "/auto_on → Encender envíos automáticos al CHAT_ID\n"
-        "/auto_off → Apagar envíos automáticos\n"
+    # Detecta el chat correcto, sea grupo, canal o privado
+    chat_id = (
+        update.effective_chat.id
+        if update.effective_chat
+        else getattr(update.channel_post, "chat_id", None)
     )
-    await update.message.reply_text(texto)
+
+    texto = (
+        "👋 Bienvenidos a FASTMONEY.\n"
+        "Comandos:\n"
+        "/TASA → Resumen de mercado\n"
+#        "/COP → Resumen COP (compacto)\n"
+#        "/VES → Resumen VES (compacto)\n"
+#        "/ARBITRAJE → Análisis de oportunidades\n"
+#        "/ALL → Reporte completo\n"
+#        "/ACT → Forzar actualización y enviar reporte completo\n"
+#        "/auto_on → Encender envíos automáticos al canal oficial\n"
+#        "/auto_off → Apagar envíos automáticos\n"
+    )
+
+    if chat_id:
+        await context.bot.send_message(chat_id=chat_id, text=texto)
 
 # utility to call sync function in threadpool
 async def _get_data_async():
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(None, get_p2p_data)
 
+async def cmd_tasa(update, context):
+    """Obtiene los datos actuales y muestra las tasas y referencias."""
+    chat_id = (
+        update.effective_chat.id
+        if update.effective_chat
+        else getattr(update.channel_post, "chat_id", None)
+    )
+
+    if not chat_id:
+        return
+
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando tasas y referencias...")
+
+    data = await _get_data_async()
+    msg = format_tasa(data)
+
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=msg,
+        parse_mode=ParseMode.MARKDOWN
+    )
 async def cmd_cop(update, context):
     await update.message.reply_text("⏳ Consultando mercado COP...")
     data = await _get_data_async()
@@ -493,9 +514,9 @@ async def cmd_all(update, context):
     await update.message.reply_text(msg, parse_mode=ParseMode.MARKDOWN)
 
 async def cmd_act(update, context):
-    await update.message.reply_text("⏳ Forzando actualización y enviando reporte completo...")
+    await update.message.reply_text("⏳ Forzando actualización y enviando tasa")
     data = await _get_data_async()
-    msg = format_all(data)
+    msg = format_tasa(data)
     # enviar al CHAT_ID configurado además de confirmar al usuario
     try:
         await context.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.MARKDOWN)
@@ -504,65 +525,57 @@ async def cmd_act(update, context):
         await update.message.reply_text(f"❌ Error enviando al CHAT_ID: {e}")
 
 async def cmd_auto_on(update, context):
-    """
-    Activa los envíos automáticos de tasas.
-    Uso: /auto_on [segundos]
-    Si no se indica valor, usa el intervalo del archivo CONFIG.
-    """
-    global auto_job
-
-    # 🧠 Evita múltiples jobs activos
-    if auto_job:
-        await update.message.reply_text("✅ El modo automático ya está activo.")
+    """Activa los envíos automáticos de tasas (solo canal oficial)."""
+    chat_id = update.effective_chat.id
+    if str(chat_id) != str(OWNER_ID):
+        await update.message.reply_text("⚠️ Este comando solo está disponible para el administrador.")
         return
 
-    # ⏱️ Intervalo configurable (segundos)
+    # ⏱️ Intervalo configurable
     try:
-        if context.args:  # Si el usuario envía algo como /auto_on 300
-            interval = int(context.args[0])
-        else:
-            interval = CONFIG.get("intervalo_tiempo", 600)  # valor por defecto 10 min
+        interval = int(context.args[0]) if context.args else CONFIG.get("intervalo_tiempo", 600)
     except ValueError:
         await update.message.reply_text("⚠️ Intervalo inválido. Ejemplo: /auto_on 300")
         return
 
-    minutes = max(1, int(interval / 60))
+    # Verifica si ya hay un job
+    if context.job_queue.get_jobs_by_name("auto_tasa"):
+        await update.message.reply_text("✅ El modo automático ya está activo.")
+        return
 
-    # 🧩 Nueva tarea: enviar solo las tasas (modo remesas)
-    async def job_send():
+    # 🧩 Define el job
+    async def job_send(context):
         try:
             data = await _get_data_async()
-            msg = format_tasa(data)  # 📊 solo tasas, sin arbitraje
-            await context.bot.send_message(
-                chat_id=CHAT_ID,
-                text=msg,
-                parse_mode="HTML"
-            )
+            msg = format_tasa(data)
+            await context.bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode=ParseMode.HTML)
         except Exception as e:
-            await context.bot.send_message(
-                chat_id=CHAT_ID,
-                text=f"⚠️ Error en job automático: {e}"
-            )
+            await context.bot.send_message(chat_id=OWNER_ID, text=f"⚠️ Error en job automático: {e}")
 
-    # APScheduler trabaja con funciones sync, así que usamos run_in_executor
-    def wrapper_job():
-        loop = asyncio.get_event_loop()
-        loop.create_task(job_send())
+    # 🗓️ Registra el job
+    context.job_queue.run_repeating(job_send, interval=interval, first=5, name="auto_tasa")
 
-    # 🗓️ Registrar tarea
-    auto_job = scheduler.add_job(wrapper_job, "interval", seconds=interval)
+    minutes = max(1, int(interval / 60))
     await update.message.reply_text(f"💱 Envíos automáticos ACTIVADOS cada {minutes} minuto(s).")
 
-
+# ------------------------------------------------------------
+# /auto_off → solo para el canal oficial
+# ------------------------------------------------------------
 async def cmd_auto_off(update, context):
-    """Desactiva el modo automático."""
-    global auto_job
-    if auto_job:
-        auto_job.remove()
-        auto_job = None
-        await update.message.reply_text("🛑 Envíos automáticos desactivados.")
-    else:
-        await update.message.reply_text("⚠️ No había envíos automáticos activos.")
+    """Desactiva los envíos automáticos."""
+    if str(update.effective_chat.id) != str(OWNER_ID):
+        await update.message.reply_text("⚠️ Solo el administrador puede usar este comando.")
+        return
+
+    jobs = context.job_queue.get_jobs_by_name("auto_tasa")
+    if not jobs:
+        await update.message.reply_text("⚠️ No hay tareas automáticas activas.")
+        return
+
+    for job in jobs:
+        job.schedule_removal()
+
+    await update.message.reply_text("🛑 Envíos automáticos desactivados.")
 
 # ==============================
 # BOOT / MAIN
