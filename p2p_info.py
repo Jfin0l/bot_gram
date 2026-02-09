@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.constants import ParseMode
+from core import pipeline
 
 # ==============================
 # CONFIGURACIÓN GLOBAL (Centralizada)
@@ -128,111 +129,17 @@ def analizar_mercado(datos, fiat, tipo):
     }
 
 def get_p2p_data():
+    """Construye los datos a partir de lo almacenado en la DB (pipeline).
+
+    Esta función delega en `core.pipeline.build_data_from_db(CONFIG)` para
+    producir la misma estructura que antes, pero leyendo la última respuesta
+    guardada por mercado/tradeType.
     """
-    Obtiene datos P2P y retorna un diccionario estructurado con:
-    - promedios para tasas (primeros N anuncios)
-    - análisis ampliado (rangos mayores)
-    - raw data counts
-    """
-    # Raw ads (página completa según CONFIG)
-    cop_buy = _fetch_ads("BUY", "COP")
-    cop_sell = _fetch_ads("SELL", "COP")
-    ves_buy = _fetch_ads("BUY", "VES")
-    ves_sell = _fetch_ads("SELL", "VES")
-
-    # Para tasas (remesas) usamos los primeros CONFIG["filas_tasa_remesa"]
-    n = CONFIG["filas_tasa_remesa"]
-    cop_buy_tasa = cop_buy[:n]
-    cop_sell_tasa = cop_sell[:n]
-    ves_buy_tasa = ves_buy[:n]
-    ves_sell_tasa = ves_sell[:n]
-
-    # Asegurar datos
-    def _extract_prices(lista):
-        try:
-            return [float(x["adv"]["price"]) for x in lista if x and x.get("adv")]
-        except Exception:
-            return []
-
-    precios_cop_buy = _extract_prices(cop_buy_tasa)
-    precios_cop_sell = _extract_prices(cop_sell_tasa)
-    precios_ves_buy = _extract_prices(ves_buy_tasa)
-    precios_ves_sell = _extract_prices(ves_sell_tasa)
-
-    # Promedios simples para tasas (remesas) — obligación tuya mantenerlos
-    avg_cop_buy = sum(precios_cop_buy) / len(precios_cop_buy) if precios_cop_buy else None
-    avg_cop_sell = sum(precios_cop_sell) / len(precios_cop_sell) if precios_cop_sell else None
-    avg_ves_buy = sum(precios_ves_buy) / len(precios_ves_buy) if precios_ves_buy else None
-    avg_ves_sell = sum(precios_ves_sell) / len(precios_ves_sell) if precios_ves_sell else None
-
-    # Tasas obligatorias (remesas):
-    tasa_cop_ves_5 = (avg_cop_buy / avg_ves_sell * 1.05) if avg_cop_buy and avg_ves_sell else None
-    tasa_cop_ves_10 = (avg_cop_buy / avg_ves_sell * 1.10) if avg_cop_buy and avg_ves_sell else None
-    tasa_ves_cop_5 = (avg_ves_buy / avg_cop_sell * 1.05) if avg_ves_buy and avg_cop_sell else None
-
-    # Análisis profundo (usando todos los anuncios descargados por CONFIG["rows"])
-    info_cop_buy = analizar_mercado(cop_buy, "COP", "BUY")
-    info_cop_sell = analizar_mercado(cop_sell, "COP", "SELL")
-    info_ves_buy = analizar_mercado(ves_buy, "VES", "BUY")
-    info_ves_sell = analizar_mercado(ves_sell, "VES", "SELL")
-
-    # Spreads para arbitraje (usamos promedios ponderados si están disponibles)
-    # Para cálculo simple de oportunidad: usar avg_ponderado si existe, si no usar avg simple.
-    def _choose_avg(info):
-        return info.get("avg_ponderado") or info.get("avg")
-
-    avg_cop_buy_for_arbit = _choose_avg(info_cop_buy)
-    avg_cop_sell_for_arbit = _choose_avg(info_cop_sell)
-    avg_ves_buy_for_arbit = _choose_avg(info_ves_buy)
-    avg_ves_sell_for_arbit = _choose_avg(info_ves_sell)
-
-    # Calculo simple de rutas de arbitraje (porcentaje potencial)
-    # COP -> USDT -> VES  (comprar USDT con COP = cop_buy ; vender USDT por VES = ves_sell)
-    arb_cop_to_ves = None
-    if avg_cop_buy_for_arbit and avg_ves_sell_for_arbit:
-        arb_cop_to_ves = (avg_ves_sell_for_arbit / avg_cop_buy_for_arbit - 1) * 100
-
-    # VES -> USDT -> COP (comprar USDT con VES = ves_buy ; vender USDT por COP = cop_sell)
-    arb_ves_to_cop = None
-    if avg_ves_buy_for_arbit and avg_cop_sell_for_arbit:
-        arb_ves_to_cop = (avg_cop_sell_for_arbit / avg_ves_buy_for_arbit - 1) * 100
-
-    result = {
-        "timestamps": {"utc": datetime.datetime.now(datetime.UTC).isoformat()},
-        "COP": {
-            "promedio_buy_tasa": avg_cop_buy,
-            "promedio_sell_tasa": avg_cop_sell,
-            "raw_count": len(cop_buy)
-        },
-        "VES": {
-            "promedio_buy_tasa": avg_ves_buy,
-            "promedio_sell_tasa": avg_ves_sell,
-            "raw_count": len(ves_buy)
-        },
-        "tasas_remesas": {
-            "cop_ves_5pct": tasa_cop_ves_5,
-            "cop_ves_10pct": tasa_cop_ves_10,
-            "ves_cop_5pct": tasa_ves_cop_5
-        },
-        "analisis": {
-            "cop_buy": info_cop_buy,
-            "cop_sell": info_cop_sell,
-            "ves_buy": info_ves_buy,
-            "ves_sell": info_ves_sell
-        },
-        "arbitraje": {
-            "cop_to_ves_pct": arb_cop_to_ves,
-            "ves_to_cop_pct": arb_ves_to_cop
-        },
-        "raw": {
-            "cop_buy_raw": cop_buy,
-            "cop_sell_raw": cop_sell,
-            "ves_buy_raw": ves_buy,
-            "ves_sell_raw": ves_sell
-        }
-    }
-
-    return result
+    try:
+        return pipeline.build_data_from_db(CONFIG)
+    except Exception as e:
+        print(f"⚠️ Error leyendo desde DB en pipeline: {e}")
+        return {}
 
 # ==============================
 # FORMATTERS (mensajes para Telegram)
