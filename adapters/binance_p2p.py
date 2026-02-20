@@ -4,7 +4,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
-def _fetch_ads(tradeType: str, fiat: str):
+def _fetch_ads(tradeType: str, fiat: str, min_rows: int = 100, max_pages: int = 3):
     """
     Llama al endpoint oficial de Binance P2P y devuelve la lista 'data'.
     """
@@ -15,31 +15,43 @@ def _fetch_ads(tradeType: str, fiat: str):
         "User-Agent": "Mozilla/5.0 (X11; Linux x86_64)"
     }
 
-    payload = {
-        "page": 1,
-        "rows": 10,
-        "asset": "USDT",
-        "tradeType": tradeType,
-        "fiat": fiat,
-        "publisherType": None,
-        "merchantCheck": False
-    }
-
+    collected = []
+    # Decide rows per page; some endpoints limit to small numbers (10), so use 50 as a reasonable per-page size
+    rows_per_page = 50
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=10)
-        r.raise_for_status()
-        data = r.json().get("data", [])
-        log.info(f"🔹 {len(data)} anuncios {tradeType} obtenidos ({fiat})")
-        return data
+        for page in range(1, max_pages + 1):
+            payload = {
+                "page": page,
+                "rows": rows_per_page,
+                "asset": "USDT",
+                "tradeType": tradeType,
+                "fiat": fiat,
+                "publisherType": None,
+                "merchantCheck": False
+            }
+            r = requests.post(url, headers=headers, json=payload, timeout=10)
+            r.raise_for_status()
+            data = r.json().get("data", [])
+            if not data:
+                break
+            collected.extend(data)
+            log.info(f"🔹 page {page}: {len(data)} anuncios {tradeType} obtenidos ({fiat})")
+            if len(collected) >= min_rows:
+                break
+
+        log.info(f"🔹 total {len(collected)} anuncios {tradeType} recolectados ({fiat})")
+        return collected
     except Exception as e:
         log.error(f"❌ Error al obtener {tradeType}-{fiat}: {e}")
-        return []
+        return collected
 
 
-def get_ads(fiat="COP"):
-    """Devuelve (buy_ads, sell_ads) simplificados."""
-    buy_data = _fetch_ads("BUY", fiat)
-    sell_data = _fetch_ads("SELL", fiat)
+def get_ads(fiat="COP", min_rows: int = 100, max_pages: int = 3):
+    """Devuelve (buy_ads, sell_ads) simplificados.
+    Intenta paginar hasta `min_rows` anuncios por lado, con un máximo de `max_pages` páginas.
+    """
+    buy_data = _fetch_ads("BUY", fiat, min_rows=min_rows, max_pages=max_pages)
+    sell_data = _fetch_ads("SELL", fiat, min_rows=min_rows, max_pages=max_pages)
 
     def simplify(raw_list):
         ads = []
