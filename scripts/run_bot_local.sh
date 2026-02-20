@@ -12,5 +12,13 @@ set -a
 source .env
 set +a
 
-echo "Starting bot (PYTHONPATH=. python3 -m scripts.run_bot)"
-PYTHONPATH=. python3 -m scripts.run_bot
+# Prefer project virtualenv if present
+VENV_PY=".venv/bin/python"
+if [ -x "$VENV_PY" ]; then
+  PYTHON_EXEC="$VENV_PY"
+else
+  PYTHON_EXEC="python3"
+fi
+
+echo "Starting bot with $PYTHON_EXEC (PYTHONPATH=. )"
+PYTHONPATH=. "$PYTHON_EXEC" -m scripts.run_bot

@@ -2,7 +2,10 @@ import logging
 from datetime import datetime
 from core import pipeline, db
 from config import BOT_TOKEN, CHAT_ID, OWNER_ID, log
-from apscheduler.schedulers.background import BackgroundScheduler
+try:
+    from apscheduler.schedulers.background import BackgroundScheduler
+except Exception:
+    BackgroundScheduler = None
 try:
     from telegram import Bot
     from telegram.constants import ParseMode
@@ -133,6 +136,15 @@ def send_tasa_to_channel(config: dict, chat_id: str = None, dry_run: bool = Fals
 
 
 def start_notifier_scheduler(config: dict, interval: int = 3600, chat_id: str = None, dry_run: bool = False):
+    if BackgroundScheduler is None:
+        log.warning("apscheduler not available; notifier scheduler disabled (fallback).")
+
+        class Dummy:
+            def shutdown(self):
+                pass
+
+        return Dummy()
+
     sched = BackgroundScheduler()
 
     def job():

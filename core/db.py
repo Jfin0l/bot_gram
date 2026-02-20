@@ -58,6 +58,38 @@ def _ensure_db():
     cur = conn.cursor()
     cur.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_pair ON snapshots(pair)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots(timestamp_utc)")
+    # aggregated prices table (10-minute buckets)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS aggregated_prices (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pair TEXT NOT NULL,
+            bucket_start TEXT NOT NULL,
+            avg_price REAL,
+            min_price REAL,
+            max_price REAL,
+            volume REAL,
+            spread_pct REAL,
+            volatility REAL,
+            sample_count INTEGER
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_agg_pair_bucket ON aggregated_prices(pair, bucket_start)")
+    # events table (simple signals/anomalies)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            pair TEXT,
+            timestamp TEXT NOT NULL,
+            severity INTEGER,
+            details TEXT
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp)")
     conn.commit()
     conn.close()
 
@@ -137,6 +169,107 @@ def fetch_latest_snapshots(limit: int = 10):
             parsed = raw
         results.append({"timestamp_utc": ts, "pair": pair, "raw": parsed})
     return results
+
+
+def save_aggregated_price(pair: str, bucket_start: str, avg_price: float = None, min_price: float = None,
+                          max_price: float = None, volume: float = None, spread_pct: float = None,
+                          volatility: float = None, sample_count: int = None):
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO aggregated_prices (pair, bucket_start, avg_price, min_price, max_price, volume, spread_pct, volatility, sample_count) VALUES (?,?,?,?,?,?,?,?,?)",
+        (pair, bucket_start, avg_price, min_price, max_price, volume, spread_pct, volatility, sample_count),
+    )
+    conn.commit()
+    conn.close()
+
+
+def fetch_recent_aggregates(pair: str, limit: int = 50):
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT bucket_start, avg_price, min_price, max_price, volume, spread_pct, volatility, sample_count FROM aggregated_prices WHERE pair = ? ORDER BY id DESC LIMIT ?", (pair, limit))
+    rows = cur.fetchall()
+    conn.close()
+    out = []
+    for row in rows:
+        out.append({
+            'bucket_start': row[0],
+            'avg_price': row[1],
+            'min_price': row[2],
+            'max_price': row[3],
+            'volume': row[4],
+            'spread_pct': row[5],
+            'volatility': row[6],
+            'sample_count': row[7],
+        })
+    return out
+
+
+def save_event(event_type: str, pair: str, timestamp: str, details: dict = None, severity: int = 1):
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    payload = json.dumps(details or {}, ensure_ascii=False)
+    cur.execute("INSERT INTO events (event_type, pair, timestamp, severity, details) VALUES (?,?,?,?,?)", (event_type, pair, timestamp, severity, payload))
+    conn.commit()
+    conn.close()
+
+
+def recent_event_exists(event_type: str, pair: str, within_seconds: int = 300, match_details: dict = None) -> bool:
+    """Return True if a recent event of same type/pair exists within `within_seconds`.
+
+    If `match_details` is provided, the function will compare the stored event `details`
+    JSON and require that all keys in `match_details` match exactly.
+    """
+    _ensure_db()
+    import datetime
+
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    # fetch recent events of this type/pair (limit to reasonable number)
+    cur.execute("SELECT timestamp, details FROM events WHERE event_type = ? AND pair = ? ORDER BY id DESC LIMIT 200", (event_type, pair))
+    rows = cur.fetchall()
+    conn.close()
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for ts_str, details_json in rows:
+        try:
+            ts = datetime.datetime.fromisoformat(ts_str)
+        except Exception:
+            # fallback: skip unparsable timestamps
+            continue
+        delta = (now - ts).total_seconds()
+        if delta <= within_seconds:
+            if match_details:
+                try:
+                    parsed = json.loads(details_json or "{}")
+                except Exception:
+                    parsed = {}
+                ok = True
+                for k, v in match_details.items():
+                    if parsed.get(k) != v:
+                        ok = False
+                        break
+                if ok:
+                    return True
+                else:
+                    continue
+            else:
+                return True
+    return False
+
+
+def save_event_dedup(event_type: str, pair: str, timestamp: str, details: dict = None, severity: int = 1, dedup_seconds: int = 300, match_details: dict = None):
+    """Save event only if a similar recent event does not exist.
+
+    `match_details` is forwarded to `recent_event_exists` to compare specific fields (e.g., merchant).
+    """
+    if recent_event_exists(event_type, pair, within_seconds=dedup_seconds, match_details=match_details):
+        return False
+    save_event(event_type, pair, timestamp, details=details, severity=severity)
+    return True
 
 
 def get_latest_snapshot_for_pair(pair: str):

@@ -1,5 +1,4 @@
 import logging
-from apscheduler.schedulers.background import BackgroundScheduler
 from datetime import datetime
 from core import fetcher, snapshot
 
@@ -7,11 +6,20 @@ log = logging.getLogger(__name__)
 
 
 def start_scheduler(config, fetch_interval: int = 300, snapshot_interval: int = 300):
-    """Inicia un scheduler en background que:
-    - ejecuta `fetcher.fetch_and_store` cada `fetch_interval` segundos
-    - ejecuta `snapshot.create_and_store_snapshots` cada `snapshot_interval` segundos
-    Devuelve la instancia `BackgroundScheduler` para control del proceso.
+    """Start a background scheduler for periodic fetch and snapshot.
+    If `apscheduler` is not available, return a dummy scheduler with `shutdown()`.
     """
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+    except Exception:
+        log.warning("apscheduler not available; scheduler disabled (fallback).")
+
+        class DummySched:
+            def shutdown(self):
+                pass
+
+        return DummySched()
+
     sched = BackgroundScheduler()
 
     def job_fetch():

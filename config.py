@@ -1,11 +1,15 @@
 # config.py
 import os
-from dotenv import load_dotenv
 from datetime import datetime
 import logging
 
-# Cargar variables del entorno (.env)
-load_dotenv()
+# Cargar variables del entorno (.env) si está disponible
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    # dotenv no instalado en el entorno de pruebas; asumimos variables de entorno externas
+    pass
 
 # Variables globales
 BOT_TOKEN = os.getenv("BOT_TOKEN")

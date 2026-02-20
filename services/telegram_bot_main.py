@@ -4,25 +4,41 @@ Comandos: /TASA, /COP, /VES, /ARBITRAJE, /auto_on, /auto_off, /start
 """
 import logging
 import os
-from dotenv import load_dotenv
-from telegram import Update, Bot
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-)
-from telegram.constants import ParseMode
-from datetime import datetime
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    # dotenv optional in test environments
+    pass
+try:
+    from telegram import Update, Bot
+    from telegram.ext import (
+        ApplicationBuilder,
+        CommandHandler,
+        ContextTypes,
+        MessageHandler,
+        filters,
+    )
+    from telegram.constants import ParseMode
+    TELEGRAM_AVAILABLE = True
+except Exception:
+    TELEGRAM_AVAILABLE = False
 
+from datetime import datetime
 from core import pipeline, notifier, db, scheduler
 
-load_dotenv()
+# load .env if available (already attempted above but ensure env vars present)
+try:
+    from dotenv import load_dotenv as _ld
+    _ld()
+except Exception:
+    pass
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 OWNER_ID = os.getenv("OWNER_ID")
 
-if not BOT_TOKEN or not CHAT_ID:
+if TELEGRAM_AVAILABLE and (not BOT_TOKEN or not CHAT_ID):
     raise ValueError("BOT_TOKEN y CHAT_ID requeridos en .env")
 
 # CONFIG
@@ -42,12 +58,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Enable verbose logging for telegram to help debug incoming updates
+logging.getLogger("telegram").setLevel(logging.DEBUG)
+
 
 # ==============================
 # HANDLERS
 # ==============================
 
-async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_start(update, context):
     """Comando /start — información del bot."""
     texto = (
         "👋 *Bienvenidos a FASTMONEY*\n\n"
@@ -66,7 +85,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def cmd_tasa(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_tasa(update, context):
     """Comando /TASA — Envía tasas actuales."""
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando tasas...")
@@ -88,7 +107,7 @@ async def cmd_tasa(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
-async def cmd_cop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_cop(update, context):
     """Comando /COP — Mercado COP."""
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando COP...")
@@ -102,7 +121,7 @@ async def cmd_cop(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
-async def cmd_ves(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_ves(update, context):
     """Comando /VES — Mercado VES."""
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando VES...")
@@ -116,7 +135,7 @@ async def cmd_ves(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
-async def cmd_arbitraje(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_arbitraje(update, context):
     """Comando /ARBITRAJE — Análisis de arbitraje."""
     chat_id = update.effective_chat.id
     await context.bot.send_message(chat_id=chat_id, text="⏳ Analizando arbitraje...")
@@ -157,7 +176,7 @@ async def cmd_arbitraje(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
-async def cmd_auto_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_auto_on(update, context):
     """Comando /auto_on — Activar envíos automáticos."""
     # Verificar permisos (solo OWNER_ID)
     if str(update.effective_chat.id) != str(OWNER_ID):
@@ -210,7 +229,7 @@ async def cmd_auto_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info(f"Auto-tasa activado cada {interval}s")
 
 
-async def cmd_auto_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def cmd_auto_off(update, context):
     """Comando /auto_off — Desactivar envíos automáticos."""
     # Verificar permisos
     if str(update.effective_chat.id) != str(OWNER_ID):
@@ -238,16 +257,80 @@ async def cmd_auto_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logger.info("Auto-tasa desactivado")
 
 
+async def cmd_buckets(update, context):
+    """Comando /BUCKETS [pair] [n] — Muestra los últimos n buckets agregados (10m)."""
+    chat_id = update.effective_chat.id
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando buckets recientes...")
+
+    # args: pair, n
+    try:
+        pair = (context.args[0].upper() if context.args else "USDT-COP")
+    except Exception:
+        pair = "USDT-COP"
+    try:
+        n = int(context.args[1]) if len(context.args) > 1 else 5
+    except Exception:
+        n = 5
+
+    try:
+        rows = db.fetch_recent_aggregates(pair, limit=n)
+        if not rows:
+            await context.bot.send_message(chat_id=chat_id, text=f"⚠️ No hay buckets recientes para {pair}")
+            return
+
+        lines = [f"📦 Buckets recientes — {pair} (n={len(rows)})"]
+        for r in rows:
+            bs = r.get('bucket_start')
+            avg = r.get('avg_price')
+            vol = r.get('volume')
+            sp = r.get('spread_pct')
+            vola = r.get('volatility')
+            avg_s = f"{avg:.4f}" if isinstance(avg, (int, float)) else "N/D"
+            vol_s = f"{vol:.2f}" if isinstance(vol, (int, float)) else "N/D"
+            sp_s = f"{sp:.2f}%" if isinstance(sp, (int, float)) else "N/D"
+            vola_s = f"{vola:.4f}" if isinstance(vola, (int, float)) else "N/D"
+            lines.append(f"• {bs} — avg: {avg_s} vol: {vol_s} spread: {sp_s} volat: {vola_s}")
+
+        msg = "\n".join(lines)
+        await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML)
+    except Exception as e:
+        logger.exception(f"Error en /BUCKETS: {e}")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
+
+
 # ==============================
 # MAIN
 # ==============================
 
 def main():
-    """Inicia el bot Telegram."""
+    """Inicia el bot Telegram. If telegram lib not available, block until stopped."""
     logger.info("Iniciando bot...")
-    
+    if not TELEGRAM_AVAILABLE:
+        logger.warning("python-telegram-bot no disponible. Bot deshabilitado; manteniendo proceso para worker.")
+        try:
+            import time
+            while True:
+                time.sleep(60)
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Bot placeholder exiting")
+        return
+
+    # Ensure no webhook is set that would conflict with polling
+    try:
+        Bot(token=BOT_TOKEN).delete_webhook()
+        logger.info("Deleted existing webhook (if any)")
+    except Exception:
+        logger.exception("Could not delete webhook (continuing)")
+
     app = ApplicationBuilder().token(BOT_TOKEN).build()
-    
+
+    async def _log_all_updates(update, context):
+        try:
+            logger.debug("Received update: %s", update)
+        except Exception:
+            logger.exception("Error logging update")
+
+
     # Registrar handlers
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("TASA", cmd_tasa))
@@ -256,7 +339,10 @@ def main():
     app.add_handler(CommandHandler("ARBITRAJE", cmd_arbitraje))
     app.add_handler(CommandHandler("auto_on", cmd_auto_on))
     app.add_handler(CommandHandler("auto_off", cmd_auto_off))
-    
+    app.add_handler(CommandHandler("BUCKETS", cmd_buckets))
+    # Catch-all logger to help debugging when commands aren't triggering
+    app.add_handler(MessageHandler(filters.ALL, _log_all_updates))
+
     logger.info("Bot iniciado. Escuchando comandos...")
     app.run_polling()
 
