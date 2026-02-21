@@ -266,6 +266,10 @@ def init_global(window_seconds: int = 6 * 3600) -> RamWindow:
 
 
 def get_global() -> RamWindow:
+    global _GLOBAL_WINDOW
+    if _GLOBAL_WINDOW is None:
+        # lazy-init global window with default timeout
+        return init_global()
     return _GLOBAL_WINDOW
 
 

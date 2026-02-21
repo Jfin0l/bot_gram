@@ -16,8 +16,8 @@ def _fetch_ads(tradeType: str, fiat: str, min_rows: int = 100, max_pages: int = 
     }
 
     collected = []
-    # Decide rows per page; some endpoints limit to small numbers (10), so use 50 as a reasonable per-page size
-    rows_per_page = 50
+    # Binance P2P enforces small page sizes (10). Use 10 per page and paginate.
+    rows_per_page = 10
     try:
         for page in range(1, max_pages + 1):
             payload = {
@@ -46,7 +46,7 @@ def _fetch_ads(tradeType: str, fiat: str, min_rows: int = 100, max_pages: int = 
         return collected
 
 
-def get_ads(fiat="COP", min_rows: int = 100, max_pages: int = 3):
+def get_ads(fiat="COP", min_rows: int = 100, max_pages: int = 10):
     """Devuelve (buy_ads, sell_ads) simplificados.
     Intenta paginar hasta `min_rows` anuncios por lado, con un máximo de `max_pages` páginas.
     """

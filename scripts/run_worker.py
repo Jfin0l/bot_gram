@@ -22,7 +22,8 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
         try:
             for pair in CONFIG.get('pares', []):
                 fiat = pair.split('-')[1]
-                buy_ads, sell_ads = binance_p2p.get_ads(fiat=fiat, min_rows=min_rows, max_pages=3)
+                # allow more pages (10 ads per page) to reach ~min_rows target
+                buy_ads, sell_ads = binance_p2p.get_ads(fiat=fiat, min_rows=min_rows, max_pages=12)
                 ads = []
                 for a in buy_ads:
                     ads.append({

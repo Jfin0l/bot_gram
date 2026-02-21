@@ -26,6 +26,10 @@ except Exception:
 
 from datetime import datetime
 from core import pipeline, notifier, db, scheduler
+import asyncio
+from services.analytics.spread import handle_spread
+from services.analytics.merchant import handle_merchant
+from services.analytics.volatility import handle_volatility
 
 # load .env if available (already attempted above but ensure env vars present)
 try:
@@ -317,8 +321,17 @@ def main():
 
     # Ensure no webhook is set that would conflict with polling
     try:
-        Bot(token=BOT_TOKEN).delete_webhook()
-        logger.info("Deleted existing webhook (if any)")
+        # delete_webhook is async in newer python-telegram-bot versions; run it safely
+        try:
+            asyncio.run(Bot(token=BOT_TOKEN).delete_webhook())
+            logger.info("Deleted existing webhook (if any)")
+        except Exception:
+            # fallback to non-awaitable call if present
+            try:
+                Bot(token=BOT_TOKEN).delete_webhook()
+                logger.info("Deleted existing webhook (sync fallback)")
+            except Exception:
+                logger.exception("Could not delete webhook (continuing)")
     except Exception:
         logger.exception("Could not delete webhook (continuing)")
 
@@ -337,6 +350,9 @@ def main():
     app.add_handler(CommandHandler("COP", cmd_cop))
     app.add_handler(CommandHandler("VES", cmd_ves))
     app.add_handler(CommandHandler("ARBITRAJE", cmd_arbitraje))
+    app.add_handler(CommandHandler("spread", lambda u, c: _wrap_analytics(u, c, handle_spread)))
+    app.add_handler(CommandHandler("merchant", lambda u, c: _wrap_analytics(u, c, handle_merchant)))
+    app.add_handler(CommandHandler("volatilidad", lambda u, c: _wrap_analytics(u, c, handle_volatility)))
     app.add_handler(CommandHandler("auto_on", cmd_auto_on))
     app.add_handler(CommandHandler("auto_off", cmd_auto_off))
     app.add_handler(CommandHandler("BUCKETS", cmd_buckets))
@@ -344,7 +360,38 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, _log_all_updates))
 
     logger.info("Bot iniciado. Escuchando comandos...")
+    # Ensure an asyncio event loop is set for the main thread (fixes RuntimeError on some Python versions)
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    except Exception:
+        pass
     app.run_polling()
+
+
+async def _wrap_analytics(update, context, func):
+    """Bridge between telegram handler and analytics functions.
+
+    `func` is a synchronous function that accepts `(args: List[str], pair: str)`
+    and returns a string ready to send.
+    """
+    chat_id = update.effective_chat.id
+    args = context.args or []
+    await context.bot.send_message(chat_id=chat_id, text="⏳ Procesando...")
+    try:
+        # allow optional pair as first arg if it looks like a PAIR (e.g. USDT-COP or USDT/COP)
+        pair = 'USDT-COP'
+        if args:
+            first = args[0].upper()
+            # heuristic: must contain '/' or '-' and also include letters to be considered a pair
+            if ('/' in first or '-' in first) and any(c.isalpha() for c in first):
+                pair = first
+                args = args[1:]
+        txt = func(args, pair)
+        await context.bot.send_message(chat_id=chat_id, text=txt)
+    except Exception as e:
+        logger.exception(f"Error en analytics command: {e}")
+        await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
 if __name__ == "__main__":
