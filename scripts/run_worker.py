@@ -14,7 +14,7 @@ _sched = None
 _window = None
 
 
-def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, interval: int = 10, min_rows: int = 100):
+def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, interval: int = 120, min_rows: int = 100):
     """Simple ingest loop: fetch ads per pair and append to RAM every `interval` seconds.
     Stops when `stop_event` is set.
     """
@@ -53,7 +53,7 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
             break
 
 
-def start_worker(fetch_interval: int = 600, snapshot_interval: int = 600, ingest_interval: int = 10, ingest_min_rows: int = 100):
+def start_worker(fetch_interval: int = 300, snapshot_interval: int = 600, ingest_interval: int = 120, ingest_min_rows: int = 100):
     """Start scheduler, RAM window, aggregator and ingest thread."""
     global _ingest_thread, _ingest_stop_event, _sched, _window
     if _sched is not None:
