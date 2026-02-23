@@ -1,4 +1,5 @@
 import logging
+import pytz 
 from datetime import datetime
 from core import pipeline, db
 from config import BOT_TOKEN, CHAT_ID, OWNER_ID, log
@@ -14,6 +15,9 @@ except Exception:
     ParseMode = None
 
 logg = logging.getLogger(__name__)
+
+tz_colombia = pytz.timezone('America/Bogota')
+hora_colombia = datetime.now(tz_colombia)
 
 
 def format_tasa(data: dict) -> str:
@@ -31,7 +35,7 @@ def format_tasa(data: dict) -> str:
 
     lines = []
     lines.append("💱 FASTMONEY — TASAS ACTUALES")
-    lines.append(f"🕒 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
+    lines.append(f"🕒 {hora_colombia.strftime('%Y-%m-%d %H:%M:%S')} (Colombia)")
     lines.append("")
     lines.append("🇨🇴 COP → 🇻🇪 VES")
     lines.append(f"• {tasas.get('cop_ves_10pct'):.2f}" if tasas.get('cop_ves_10pct') else "• +10% → N/D")
@@ -56,6 +60,13 @@ def format_tasa(data: dict) -> str:
         lines.append(f"• Venta USDCOP: {usd_cop_sell:,.0f}")
     else:
         lines.append("• Venta USDCOP: N/D")
+
+    lines.append("")
+    lines.append("AVISO IMPORTANTE: ")
+    lines.append("No garantizamos la exactitud de estos datos. Usted es el unico responsasble de las decisiones que tome basandose en esta informacion.")
+    lines.append("El admonistrador del canal no se hace responsable porperdidas o dañosderivados del uso de esta informacion.")
+    lines.append("atte. FastMoney.")
+    lines.append("")
 
     return "\n".join(lines)
 
