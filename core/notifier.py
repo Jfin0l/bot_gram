@@ -20,10 +20,12 @@ def format_tasa(data: dict) -> str:
     """Formato compacto tipo /TASA (texto plano)."""
     tasas = data.get("tasas_remesas", {})
     precios_ves_sell = data.get("VES", {}).get("promedio_sell_tasa")
+    precios_ves_buy = data.get("VES", {}).get("promedio_buy_tasa")
     precios_cop_sell = data.get("COP", {}).get("promedio_sell_tasa")
     precios_cop_buy = data.get("COP", {}).get("promedio_buy_tasa")
 
-    zelle_bs = precios_ves_sell * 0.90 if precios_ves_sell else None
+    zelle_bs = precios_ves_sell * 0.915 if precios_ves_sell else None
+    bs_zelle = precios_ves_buy * 1.05 if precios_ves_buy else None
     usd_cop_buy = precios_cop_sell * 0.95 if precios_cop_sell else None
     usd_cop_sell = precios_cop_buy * 1.05 if precios_cop_buy else None
 
@@ -32,15 +34,19 @@ def format_tasa(data: dict) -> str:
     lines.append(f"🕒 {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S UTC')}")
     lines.append("")
     lines.append("🇨🇴 COP → 🇻🇪 VES")
-    lines.append(f"• +10% → {tasas.get('cop_ves_10pct'):.6f}" if tasas.get('cop_ves_10pct') else "• +10% → N/D")
+    lines.append(f"• {tasas.get('cop_ves_10pct'):.2f}" if tasas.get('cop_ves_10pct') else "• +10% → N/D")
     lines.append("")
     lines.append("🇻🇪 VES → 🇨🇴 COP")
-    lines.append(f"• +5% → {tasas.get('ves_cop_5pct'):.6f}" if tasas.get('ves_cop_5pct') else "• +5% → N/D")
+    lines.append(f"• {tasas.get('ves_cop_5pct'):.4f}" if tasas.get('ves_cop_5pct') else "• +5% → N/D")
     lines.append("")
     if zelle_bs:
         lines.append(f"• Zelle → Bs.: {zelle_bs:,.0f}")
     else:
         lines.append("• Zelle → Bs.: N/D")
+    if bs_zelle:
+        lines.append(f"• Bs. → Zelle: {bs_zelle:,.0f}")
+    else:        
+        lines.append("• Bs. → Zelle: N/D") 
     lines.append("")
     if usd_cop_buy:
         lines.append(f"• Compra USDCOP: {usd_cop_buy:,.0f}")

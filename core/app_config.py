@@ -97,7 +97,7 @@ Keep this small and independent from legacy modules.
 """
 CONFIG = {
     "pares": ["USDT-COP", "USDT-VES"],
-    "monedas": {"COP": {"rows": 20, "page": 2}, "VES": {"rows": 20, "page": 4}},
+    "monedas": {"COP": {"rows": 20, "page": 3}, "VES": {"rows": 20, "page": 5}},
     "ponderacion_volumen": True,
     "limite_outlier": 0.025,
     "umbral_volatilidad": 3,
