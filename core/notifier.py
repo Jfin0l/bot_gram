@@ -64,7 +64,8 @@ def format_tasa(data: dict) -> str:
     lines.append("")
     lines.append("AVISO IMPORTANTE: ")
     lines.append("No garantizamos la exactitud de estos datos. Usted es el unico responsasble de las decisiones que tome basandose en esta informacion.")
-    lines.append("El admonistrador del canal no se hace responsable porperdidas o dañosderivados del uso de esta informacion.")
+    lines.append("El administrador del canal no se hace responsable por perdidas o daños derivados del uso de esta informacion.")
+    lines.append("")
     lines.append("atte. FastMoney.")
     lines.append("")
 
