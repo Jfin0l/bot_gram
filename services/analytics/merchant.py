@@ -16,7 +16,7 @@ def _search_merchants(query: str, limit: int = 10) -> List[str]:
     if not rw:
         return []
     
-    query = query.lower()
+    query = query.lower().lstrip('@')
     matches = []
     
     with rw.lock:
@@ -268,7 +268,8 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
     # CASO 6: Perfil de merchant específico (CORREGIDO)
     # ===========================================
     # Si llegamos aquí, se trata de un nombre de merchant
-    name = token
+    if token.startswith('@'):
+        name = token[1:].strip()
     rw = get_global()  # ← DEFINIDA AQUÍ
     if not rw:
         return "⚠️ RAM no inicializada"
