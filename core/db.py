@@ -153,6 +153,25 @@ def save_snapshot_summary(pair: str, summary: dict):
     conn.commit()
     conn.close()
 
+def init_merchant_stats_table():
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS merchant_stats (
+            merchant TEXT,
+            pair TEXT,
+            side TEXT,
+            volume_usdt REAL,
+            avg_price REAL,
+            ad_count INTEGER,
+            hour INTEGER,
+            date TEXT,
+            UNIQUE(merchant, pair, side, date, hour)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
 
 def fetch_latest_snapshots(limit: int = 10):
     _ensure_db()
