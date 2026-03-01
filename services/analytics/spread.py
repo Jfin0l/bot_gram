@@ -102,7 +102,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
     - /spread N-M      : Promedio en rango de posiciones (ej. /spread 25-35)
     - /spread X%       : Busca posición más cercana a X% (ej. /spread 1%)
     - /spread X-Y%     : Lista posiciones en rango de % (ej. /spread 1-2%)
-    - /spread >X       : Análisis de viabilidad (próxima fase)
+    - /spread >X       : Análisis de viabilidad (ej. /spread >0.7)
     """
     # Obtener snapshot
     snap = _get_latest_snapshot(pair)
@@ -160,8 +160,8 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
             f"📌 **Posición #{token}**\n"
             f"• Spread: **{sp:.2f}%**\n"
             f"• Volumen visible: {vol:.2f} USDT\n"
-            f"• Precio compra: {buys[idx].price:.4f}\n"
-            f"• Precio venta: {sells[idx].price:.4f}\n"
+            f"• Precio compra: {buys[idx].price:.2f}\n"
+            f"• Precio venta: {sells[idx].price:.2f}\n"
             f"\n💡 *Un spread positivo indica oportunidad de arbitraje*"
         )
     
@@ -471,8 +471,8 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         "• `/spread` - Promedio primeras 5 posiciones\n"
         "• `/spread 10` - Spread en posición 10\n"
         "• `/spread 10-20` - Promedio en posiciones 10 a 20\n"
-        "• `/spread 1%` - (próximamente) Posición más cercana a 1%\n"
-        "• `/spread >1.2` - (próximamente) Análisis de viabilidad"
+        "• `/spread 1%` - Posición más cercana a 1%\n"
+        "• `/spread >1.2` - Análisis de viabilidad"
     )
 
 '''
