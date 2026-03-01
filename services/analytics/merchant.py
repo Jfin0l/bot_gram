@@ -113,12 +113,20 @@ def _build_merchant_profile(name: str, pair: str) -> str:
     sides = []
 
     with rw.lock:
+        # Case-insensitive lookup: find the actual key matching the name
+        actual_name = None
+        for key in rw.merchant_index:
+            if key.lower() == name.lower():
+                actual_name = key
+                break
+        if actual_name:
+            name = actual_name  # use the correctly-cased name for display
         dq = rw.merchant_index.get(name, [])
         for ts, ad in dq:
             if ts < cutoff:
                 continue
             count += 1
-            vol += ad.quantity
+            vol += ad.quantity / ad.price if ad.price > 0 else 0
             prices.append(ad.price)
             sides.append(ad.side)
 
@@ -201,7 +209,8 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
     - /merchant search <txt> : Buscar merchants por nombre parcial
     - /merchant @<nombre>    : Perfil del merchant especifico
     """
-    token = (" ".join(args)).strip().lower() if args else 'top'
+    raw_token = (" ".join(args)).strip() if args else 'top'
+    token = raw_token.lower()
 
     # ===========================================
     # CASO 1: Top global
@@ -246,7 +255,7 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
                     if ts < cutoff:
                         continue
                     count += 1
-                    vol += ad.quantity
+                    vol += ad.quantity / ad.price if ad.price > 0 else 0
                     prices.append(ad.price)
                     sides.add(ad.side)
 
@@ -286,10 +295,10 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
                 for ts, ad in dq:
                     if ts < cutoff:
                         continue
-                    vol += ad.quantity
+                    vol += ad.quantity / ad.price if ad.price > 0 else 0
                     count += 1
 
-                if vol >= 1000 or count >= 10:
+                if vol >= 100 or count >= 10:
                     bigs.append((m, vol, count))
 
         if not bigs:
@@ -325,9 +334,9 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
     # CASO 7: Perfil de merchant especifico (@nombre o nombre directo)
     # ===========================================
     if token.startswith('@'):
-        name = token[1:].strip()
+        name = raw_token[1:].strip()
     else:
-        name = token.strip()
+        name = raw_token.strip()
 
     if not name:
         return (
