@@ -17,7 +17,6 @@ except Exception:
 logg = logging.getLogger(__name__)
 
 tz_colombia = pytz.timezone('America/Bogota')
-hora_colombia = datetime.now(tz_colombia)
 
 
 def format_tasa(data: dict) -> str:
@@ -35,6 +34,7 @@ def format_tasa(data: dict) -> str:
 
     lines = []
     lines.append("💱 FASTMONEY — TASAS ACTUALES")
+    hora_colombia = datetime.now(tz_colombia)
     lines.append(f"🕒 {hora_colombia.strftime('%Y-%m-%d %H:%M:%S')} (Colombia)")
     lines.append("")
     lines.append("🇨🇴 COP → 🇻🇪 VES")
@@ -99,8 +99,8 @@ def format_compact_market(fiat: str, data: dict) -> str:
         lines.append(f"• Compra (avg): {prom_buy:,.2f}")
         lines.append(f"• Venta  (avg): {prom_sell:,.2f}")
         lines.append(f"• Spread aproximado: {(prom_buy/prom_sell-1)*100:.2f}%")
-    except Exception:
-        pass
+    except Exception as e:
+        logg.warning("Error calculando spread en format_compact_market: %s", e)
     lines.append("")
     if fiat == "COP":
         lines.append("💱 COP→VES:")

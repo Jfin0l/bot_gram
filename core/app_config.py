@@ -91,14 +91,15 @@ def get_config() -> Dict[str, Any]:
     }
 
 
-__all__ = ["get_config", "WINDOW_SECONDS", "INGEST_MIN_ROWS", "DETECTORS"]
-"""Minimal application config used by worker and aggregator (V1 experimental).
-Keep this small and independent from legacy modules.
-"""
+# Unified CONFIG — single source of truth for the entire application.
+# Previously duplicated in telegram_bot_main.py and scripts/run_notifier.py.
 CONFIG = {
     "pares": ["USDT-COP", "USDT-VES"],
     "monedas": {"COP": {"rows": 20, "page": 3}, "VES": {"rows": 20, "page": 5}},
+    "filas_tasa_remesa": 5,
     "ponderacion_volumen": True,
     "limite_outlier": 0.025,
     "umbral_volatilidad": 3,
 }
+
+__all__ = ["get_config", "WINDOW_SECONDS", "INGEST_MIN_ROWS", "DETECTORS", "CONFIG"]

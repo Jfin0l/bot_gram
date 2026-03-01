@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import logging
 import threading
 import time
 from typing import Optional
@@ -6,6 +7,8 @@ from core.scheduler import start_scheduler
 from core.app_config import CONFIG
 from core import ram_window, aggregator
 from adapters import binance_p2p
+
+logger = logging.getLogger(__name__)
 
 
 _ingest_thread: Optional[threading.Thread] = None
@@ -46,8 +49,8 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
                         'payment_method': a.get('payment_method') or ''
                     })
                 window.append_snapshot(pair, ads)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.exception("Error en ingest loop: %s", e)
         # wait with early exit
         if stop_event.wait(interval):
             break
@@ -73,26 +76,26 @@ def stop_worker():
     try:
         if _ingest_stop_event is not None:
             _ingest_stop_event.set()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error setting ingest stop event: %s", e)
     try:
         if _ingest_thread is not None:
             _ingest_thread.join(timeout=5)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error joining ingest thread: %s", e)
     try:
         aggregator.stop_aggregator()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error stopping aggregator: %s", e)
     try:
         ram_window.stop_global()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error stopping ram_window: %s", e)
     try:
         if _sched is not None:
             _sched.shutdown()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Error shutting down scheduler: %s", e)
     _ingest_thread = None
     _sched = None
     _window = None
