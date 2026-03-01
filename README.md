@@ -1,14 +1,16 @@
-# FastMoney Bot P2P — Bot Telegram Funcional
+# FastMoney Bot P2P — Bot Telegram de Analisis P2P
 
-Proyecto de análisis de mercados P2P conectado a Binance P2P con mensajes automáticos a Telegram.
+Bot de Telegram para analisis del mercado P2P de Binance, enfocado en los pares **USDT-COP** y **USDT-VES**. Calcula tasas de cambio, spreads, arbitraje, volatilidad y actividad de merchants.
 
-## ✅ Status Actual
+## Status Actual
 
-**Prototipo funcional:** El bot está listo para enviar mensajes automáticos (`/auto_on`, `/auto_off`) y responder a comandos.
+**Prototipo funcional** con dos pipelines de datos:
+- **DB-centric (legacy):** Para comandos base (`/TASA`, `/COP`, `/VES`, `/ARBITRAJE`)
+- **RAM in-memory (nuevo):** Para analytics avanzados (`/spread`, `/merchant`, `/volatilidad`, `/BUCKETS`)
 
-## Inicio Rápido
+## Inicio Rapido
 
-### 1. Instalación
+### 1. Instalacion
 
 ```bash
 python3 -m venv .venv
@@ -18,130 +20,176 @@ pip install -r requirements.txt
 
 ### 2. Configurar `.env`
 
-Copia de `.env.example`:
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` con tu token y chat ID (ya tiene valores de ejemplo, solo ajusta si es necesario).
+Edita `.env` con tu token de bot y chat ID.
 
 ### 3. Ejecutar el Bot
 
 ```bash
-# Ejecutar el bot (escucha comandos de Telegram)
 python3 -m scripts.run_bot
 ```
 
-El bot está vivo cuando ves:
+El bot esta activo cuando ves:
 ```
 INFO | services.telegram_bot_main | Bot iniciado. Escuchando comandos...
 ```
 
 ## Comandos Disponibles
 
-| Comando | Descripción | Ejemplo |
+### Comandos Base (pipeline DB)
+
+| Comando | Descripcion | Ejemplo |
 |---------|-------------|---------|
 | `/start` | Muestra ayuda y comandos | `/start` |
-| `/TASA` | Tasas actuales (COP↔VES) | `/TASA` |
-| `/COP` | Mercado USDT-COP compacto | `/COP` |
-| `/VES` | Mercado USDT-VES compacto | `/VES` |
-| `/ARBITRAJE` | Análisis de oportunidades | `/ARBITRAJE` |
-| `/auto_on [minutos]` | Envíos automáticos cada N minutos (default 60) | `/auto_on 30` |
-| `/auto_off` | Desactiva envíos automáticos | `/auto_off` |
+| `/TASA` | Tasas actuales COP-VES, Zelle-Bs, USD-COP | `/TASA` |
+| `/COP` | Mercado USDT-COP (compra, venta, spread) | `/COP` |
+| `/VES` | Mercado USDT-VES (compra, venta, spread) | `/VES` |
+| `/ARBITRAJE` | Analisis de oportunidades entre rutas | `/ARBITRAJE` |
 
-**Nota:** `/auto_on` y `/auto_off` solo funcionan si ejecutas desde el ID en `OWNER_ID` en `.env`.
+### Comandos Analytics (pipeline RAM)
 
-## Arquitectura (Backend sin UI)
+| Comando | Descripcion | Ejemplo |
+|---------|-------------|---------|
+| `/spread` | Analisis de spread del mercado | `/spread` |
+| `/spread <posicion>` | Spread en posicion especifica | `/spread 5` |
+| `/spread <desde> <hasta>` | Spread en rango de posiciones | `/spread 1 10` |
+| `/merchant` | Top 10 merchants por volumen | `/merchant` |
+| `/merchant buy` | Top compradores | `/merchant buy` |
+| `/merchant sell` | Top vendedores | `/merchant sell` |
+| `/merchant bots` | Detectar posibles bots | `/merchant bots` |
+| `/merchant grandes` | Merchants con alto volumen | `/merchant grandes` |
+| `/merchant search <texto>` | Buscar merchants por nombre | `/merchant search juan` |
+| `/merchant @usuario` | Perfil detallado de un merchant | `/merchant @NombreUsuario` |
+| `/volatilidad` | Analisis de volatilidad (5m/15m/1h) | `/volatilidad` |
+| `/BUCKETS [par] [n]` | Ultimos n buckets agregados (10min) | `/BUCKETS USDT-COP 5` |
+
+### Comandos Admin
+
+| Comando | Descripcion | Ejemplo |
+|---------|-------------|---------|
+| `/auto_on [segundos]` | Envios automaticos cada N segundos (default 3600) | `/auto_on 1800` |
+| `/auto_off` | Desactivar envios automaticos | `/auto_off` |
+
+**Nota:** `/auto_on` y `/auto_off` solo funcionan desde el ID configurado en `OWNER_ID`.
+
+## Arquitectura
 
 ```
-Binance API
-    ↓
-fetcher (1 request por mercado)
-    ↓
-DB SQLite (raw_responses, snapshots)
-    ↓
-pipeline (análisis desde raw)
-    ↓
-notifier (formateo de mensajes)
-    ↓
-Telegram Bot (handlers de comandos + auto-schedule)
+Binance P2P API
+    |
+adapters/binance_p2p.py  (fetch con paginacion, hasta 100+ ads/lado)
+    |
++--------------------------------------------------+
+|  DOS PIPELINES PARALELOS:                         |
+|                                                   |
+|  PIPELINE A: DB-centric (legacy/scheduled)        |
+|    core/fetcher.py -> core/db.py (raw_responses)  |
+|    core/pipeline.py -> analisis desde DB           |
+|    core/snapshot.py -> snapshots table             |
+|    core/notifier.py -> formato + envio Telegram    |
+|                                                   |
+|  PIPELINE B: RAM in-memory (real-time)            |
+|    core/ram_window.py -> ventana deslizante 6h     |
+|    core/aggregator.py -> buckets 10min -> DB       |
+|    core/detectors/ -> volatilidad, liquidez,       |
+|                       actividad de merchants       |
+|    services/analytics/ -> spread, merchant,        |
+|                           volatilidad commands     |
++--------------------------------------------------+
+    |
+services/telegram_bot_main.py (11 handlers)
+    |
+Telegram (usuarios)
 ```
 
 ## Workers en Segundo Plano (Opcionales)
 
-Si quieres que los datos se actualicen automáticamente sin el bot ejecutándose:
-
 ```bash
-# En otra terminal: Actualizar datos cada 10 min
+# En otra terminal: Worker de datos (fetch + RAM + aggregator)
 python3 -m scripts.run_worker
 
-# En otra terminal: Notificador (envía tasas cada 1 hora, dry-run)
+# En otra terminal: Notificador automatico (envio periodico de tasas)
 python3 -m scripts.run_notifier
 ```
 
 ## Base de Datos
 
-Ubicación: `data/p2p_data.db` (SQLite)
+Ubicacion: `data/p2p_data.db` (SQLite)
 
 **Tablas:**
 - `raw_responses` — respuestas crudas de la API Binance
-- `snapshots` — resúmenes agregados (precios, volatilidad, arbitraje)
+- `snapshots` — resumenes agregados (precios, volatilidad, arbitraje)
+- `aggregated_prices` — buckets de 10 minutos (avg, min, max, volumen, spread)
+- `events` — senales y anomalias detectadas (volatilidad, liquidez, merchants)
+- `merchant_stats` — estadisticas horarias por merchant
 
-Cada comando Telegram lee desde estas tablas.
+## Configuracion
 
-## Migraciones Realizadas
+La configuracion centralizada esta en `core/app_config.py`. Soporta override via variables de entorno:
 
-✅ CSV → SQLite  
-✅ Arquitectura monolítica → Modular (core/db, fetcher, pipeline, notifier)  
-✅ Bot integrado con DB  
-✅ Envíos automáticos con scheduler  
-
-## Próximos Pasos (Futuro)
-
-- [ ] API REST (FastAPI) para acceso HTTP
-- [ ] Gestión de usuarios (Free/Premium)
-- [ ] Soporte para otros exchanges
-- [ ] Gráficas históricas
-- [ ] Alertas por volatilidad
-- [ ] Systemd services para auto-start en boot
-
-## Debugging
-
-### ¿El bot no responde?
-
-```bash
-# Verifica que hay datos en DB
-python3 - <<'PY'
-from core.db import fetch_latest_snapshots
-print("Snapshots en DB:", len(fetch_latest_snapshots(3)))
-PY
-
-# Obtén datos frescos
-python3 -m scripts.fetch_and_store
-
-# Genera snapshots
-python3 -m scripts.generate_snapshot
-```
-
-### ¿Error de BOT_TOKEN?
-
-```bash
-# Verifica .env
-cat .env | grep BOT_TOKEN
-
-# Debe ser: BOT_TOKEN=<tu_token_aqui> (sin espacios)
-```
+- `WINDOW_SECONDS` — Ventana RAM en segundos (default: 21600 = 6h)
+- `INGEST_MIN_ROWS` — Minimo de filas por ingest (default: 100)
+- `DETECTOR_VOLATILITY_ENABLED` — Habilitar detector de volatilidad
+- `DETECTOR_LIQUIDITY_ENABLED` — Habilitar detector de liquidez
+- `DETECTOR_MERCHANT_ENABLED` — Habilitar detector de merchants
+- `DETECTORS_CONFIG_JSON` — Override JSON completo para detectores
 
 ## Archivos Clave
 
-- `services/telegram_bot_main.py` — Bot Telegram (handlers + scheduler)
-- `scripts/run_bot.py` — Runner para ejecutar el bot
-- `core/pipeline.py` — Análisis desde DB
-- `core/notifier.py` — Formateo de mensajes
+- `services/telegram_bot_main.py` — Bot Telegram (11 handlers)
+- `scripts/run_bot.py` — Entry point principal (worker + bot)
+- `scripts/run_worker.py` — Worker de datos (scheduler + RAM + ingest)
+- `core/app_config.py` — Configuracion centralizada
+- `core/pipeline.py` — Analisis desde DB
+- `core/notifier.py` — Formateo y envio de mensajes
+- `core/ram_window.py` — Ventana deslizante in-memory
 - `core/db.py` — Helpers SQLite
+- `core/detectors/` — Detectores de senales (volatilidad, liquidez, merchants)
+- `services/analytics/` — Comandos analytics (spread, merchant, volatilidad)
 
-## Status
+## Debugging
 
-**Prototipo Base Funcional ✅** — Feb 2026
+### El bot no responde?
 
-Ver [MIGRACION_RESUMEN.md](MIGRACION_RESUMEN.md) para arquitectura detallada.
+```bash
+# Verificar datos en DB
+python3 -c "from core.db import fetch_latest_snapshots; print('Snapshots:', len(fetch_latest_snapshots(3)))"
+
+# Obtener datos frescos
+python3 -m scripts.fetch_and_store
+
+# Generar snapshots
+python3 -m scripts.generate_snapshot
+```
+
+### Error de BOT_TOKEN?
+
+```bash
+# Verificar .env
+cat .env | grep BOT_TOKEN
+# Debe ser: BOT_TOKEN=<tu_token> (sin espacios)
+```
+
+## Migraciones Realizadas
+
+- CSV -> SQLite
+- Arquitectura monolitica -> Modular (core/db, fetcher, pipeline, notifier)
+- Bot integrado con DB
+- Envios automaticos con scheduler
+- Pipeline RAM in-memory con ventana deslizante
+- Sistema de deteccion de senales (volatilidad, liquidez, merchants)
+- Analytics avanzados (spread, merchant, volatilidad)
+
+## Proximos Pasos
+
+- [ ] API REST (FastAPI) para acceso HTTP
+- [ ] Gestion de usuarios (Free/Premium)
+- [ ] Soporte para otros exchanges
+- [ ] Graficas historicas
+- [ ] Alertas proactivas basadas en detectores
+- [ ] Dashboard web
+
+Ver [MIGRACION_RESUMEN.md](MIGRACION_RESUMEN.md) para mas detalles de arquitectura.

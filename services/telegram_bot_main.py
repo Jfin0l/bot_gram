@@ -30,13 +30,7 @@ import asyncio
 from services.analytics.spread import handle_spread
 from services.analytics.merchant import handle_merchant
 from services.analytics.volatility import handle_volatility
-
-# load .env if available (already attempted above but ensure env vars present)
-try:
-    from dotenv import load_dotenv as _ld
-    _ld()
-except Exception:
-    pass
+from core.app_config import CONFIG
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -44,16 +38,6 @@ OWNER_ID = os.getenv("OWNER_ID")
 
 if TELEGRAM_AVAILABLE and (not BOT_TOKEN or not CHAT_ID):
     raise ValueError("BOT_TOKEN y CHAT_ID requeridos en .env")
-
-# CONFIG
-CONFIG = {
-    "pares": ["USDT-COP", "USDT-VES"],
-    "monedas": {"COP": {"rows": 20, "page": 2}, "VES": {"rows": 20, "page": 4}},
-    "filas_tasa_remesa": 5,
-    "ponderacion_volumen": True,
-    "limite_outlier": 0.025,
-    "umbral_volatilidad": 3,
-}
 
 # Logger
 logging.basicConfig(
@@ -79,6 +63,10 @@ async def cmd_start(update, context):
         "/COP — Mercado USDT-COP\n"
         "/VES — Mercado USDT-VES\n"
         "/ARBITRAJE — Análisis de oportunidades\n"
+        "/spread — Análisis de spread del mercado\n"
+        "/merchant — Análisis de merchants\n"
+        "/volatilidad — Análisis de volatilidad\n"
+        "/BUCKETS — Buckets agregados recientes\n"
         "/auto_on — Activar envíos automáticos cada 60 min\n"
         "/auto_off — Desactivar envíos automáticos"
     )

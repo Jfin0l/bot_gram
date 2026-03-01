@@ -1,15 +1,6 @@
 #!/usr/bin/env python3
 from core.notifier import start_notifier_scheduler
-
-# Evitar importar p2p_info para no cargar dependencias pesadas; usar
-# CONFIG local por defecto. En despliegue puedes pasar la CONFIG del
-# archivo principal.
-CONFIG = {
-    "monedas": {"COP": {"rows": 20, "page": 2}, "VES": {"rows": 20, "page": 4}},
-    "filas_tasa_remesa": 5,
-    "ponderacion_volumen": True,
-    "limite_outlier": 0.025,
-}
+from core.app_config import CONFIG
 
 
 def main():
