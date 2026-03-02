@@ -2,12 +2,123 @@ from datetime import datetime, timezone, timedelta
 from statistics import mean, pstdev
 from typing import List, Dict, Optional, Tuple
 from collections import defaultdict
+import sqlite3
 
 from core.ram_window import get_global
+from core.db import DB_PATH
 
 
 def _cutoff(seconds: int = 3600):
     return datetime.now(timezone.utc) - timedelta(seconds=seconds)
+
+
+def _fetch_merchant_stats(merchant_name: str, pair: str) -> Optional[dict]:
+    """Obtiene estadísticas completas de un merchant."""
+    clean_name = merchant_name.lstrip('@')
+
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+
+    # Estadísticas de 24h
+    c.execute("""
+        SELECT 
+            SUM(volume_usdt) as vol_24h,
+            AVG(avg_price) as avg_price,
+            SUM(ad_count) as total_ops,
+            COUNT(DISTINCT hour) as horas_activas,
+            AVG(avg_price) as precio_promedio,
+            SUM(CASE WHEN side='buy' THEN volume_usdt ELSE 0 END) as vol_compra,
+            SUM(CASE WHEN side='sell' THEN volume_usdt ELSE 0 END) as vol_venta,
+            AVG(CASE WHEN side='buy' THEN avg_price ELSE NULL END) as precio_compra,
+            AVG(CASE WHEN side='sell' THEN avg_price ELSE NULL END) as precio_venta
+        FROM merchant_stats
+        WHERE merchant = ? AND pair = ? 
+        AND date = ?  -- Solo hoy
+    """, (clean_name, pair, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+
+    row_24h = c.fetchone()
+
+    # Estadísticas de 7 días
+    c.execute("""
+        SELECT 
+            SUM(volume_usdt) as vol_7d,
+            AVG(avg_price) as avg_price_7d,
+            COUNT(DISTINCT date) as dias_activos
+        FROM merchant_stats
+        WHERE merchant = ? AND pair = ?
+        AND date >= date('now', '-7 days')
+    """, (clean_name, pair))
+
+    row_7d = c.fetchone()
+
+    # Calcular spread promedio (diferencia entre buy y sell)
+    c.execute("""
+        SELECT 
+            AVG(CASE WHEN side='buy' THEN avg_price ELSE NULL END) as buy_avg,
+            AVG(CASE WHEN side='sell' THEN avg_price ELSE NULL END) as sell_avg
+        FROM merchant_stats
+        WHERE merchant = ? AND pair = ?
+        AND date = ?
+    """, (clean_name, pair, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+
+    row_spread = c.fetchone()
+
+    conn.close()
+
+    if not row_24h or not row_24h[0]:
+        return None
+
+    # Calcular spread
+    buy_price = row_spread[0] if row_spread and row_spread[0] else 0
+    sell_price = row_spread[1] if row_spread and row_spread[1] else 0
+    spread_pct = ((buy_price - sell_price) / sell_price *
+                  100) if sell_price > 0 else 0
+
+    # Determinar confiabilidad
+    ops_24h = row_24h[2] or 0
+    horas_activas = row_24h[3] or 0
+    vol_24h = row_24h[0] or 0
+
+    if ops_24h > 50 and horas_activas > 8 and vol_24h > 10000:
+        confiabilidad = "🟢 ALTA"
+    elif ops_24h > 20 and horas_activas > 4 and vol_24h > 5000:
+        confiabilidad = "🟡 MEDIA"
+    else:
+        confiabilidad = "🔴 BAJA"
+
+    # Determinar horario pico (requiere consulta adicional)
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    c.execute("""
+        SELECT hour, SUM(volume_usdt) as vol
+        FROM merchant_stats
+        WHERE merchant = ? AND pair = ? AND date = ?
+        GROUP BY hour
+        ORDER BY vol DESC
+        LIMIT 1
+    """, (clean_name, pair, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+
+    hora_pico = c.fetchone()
+    conn.close()
+
+    hora_pico_str = f"{hora_pico[0]}:00" if hora_pico else "N/D"
+
+    return {
+        'merchant': clean_name,
+        'vol_24h': row_24h[0] or 0,
+        'vol_7d': row_7d[0] if row_7d and row_7d[0] else 0,
+        'avg_price': row_24h[1] or 0,
+        'ops_24h': row_24h[2] or 0,
+        'horas_activas': row_24h[3] or 0,
+        'vol_compra': row_24h[5] or 0,
+        'vol_venta': row_24h[6] or 0,
+        'precio_compra': row_24h[7] or 0,
+        'precio_venta': row_24h[8] or 0,
+        'spread_pct': spread_pct,
+        'confiabilidad': confiabilidad,
+        'hora_pico': hora_pico_str,
+        'dias_activos': row_7d[2] if row_7d and row_7d[2] else 0
+    }
 
 
 def _search_merchants(query: str, limit: int = 10) -> List[str]:
@@ -33,7 +144,8 @@ def _top_merchants(pair: str, side: Optional[str] = None, limit: int = 10) -> Li
         return []
 
     cutoff = _cutoff(3600)
-    merchant_stats = defaultdict(lambda: {'vol_usdt': 0.0, 'sum_price': 0.0, 'count': 0, 'side': None})
+    merchant_stats = defaultdict(
+        lambda: {'vol_usdt': 0.0, 'sum_price': 0.0, 'count': 0, 'side': None})
 
     with rw.lock:
         for merchant, ads_list in rw.merchant_index.items():
@@ -198,6 +310,8 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
     - /merchant sell         : Top 10 vendedores
     - /merchant bots         : Detecta posibles bots
     - /merchant grandes      : Merchants con alto volumen
+    - /merchant estables     : Merchants con spread consistente
+    - /merchant rapidos      : Merchants con alta frecuencia de operaciones
     - /merchant search <txt> : Buscar merchants por nombre parcial
     - /merchant @<nombre>    : Perfil del merchant especifico
     """
@@ -263,9 +377,11 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
 
         lines = ["🤖 **POSIBLES BOTS DETECTADOS**", ""]
         for m, c, v, avg in sorted(suspects, key=lambda x: x[1], reverse=True)[:10]:
-            lines.append(f"• `{m}`: {c} ads | {v:.1f} USDT total | {avg:.2f} USDT/ad")
+            lines.append(
+                f"• `{m}`: {c} ads | {v:.1f} USDT total | {avg:.2f} USDT/ad")
 
-        lines.append("\n💡 *Bots tipicamente: alta frecuencia + bajo volumen por ad*")
+        lines.append(
+            "\n💡 *Bots tipicamente: alta frecuencia + bajo volumen por ad*")
         return "\n".join(lines)
 
     # ===========================================
@@ -322,6 +438,100 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
         return "\n".join(lines)
 
     # ===========================================
+    # CASO 8: Merchants estables
+    # ===========================================
+    if token == 'estables':
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT 
+                merchant,
+                AVG(avg_price) as precio_promedio,
+                COUNT(DISTINCT hour) as horas_activas,
+                SUM(volume_usdt) as volumen_total,
+                AVG(CASE WHEN side='buy' THEN avg_price ELSE NULL END) as buy_avg,
+                AVG(CASE WHEN side='sell' THEN avg_price ELSE NULL END) as sell_avg,
+                COUNT(*) as muestras
+            FROM merchant_stats
+            WHERE pair = ? AND date = ?
+            GROUP BY merchant
+            HAVING muestras >= 4
+            ORDER BY (buy_avg - sell_avg) DESC
+            LIMIT 10
+        """, (pair, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+
+        rows = c.fetchall()
+        conn.close()
+
+        if not rows:
+            return "⚠️ No hay suficientes datos de merchants estables hoy."
+
+        lines = ["📊 **MERCHANTS ESTABLES (hoy)**", ""]
+        lines.append("` #  Merchant      Spread   Volumen  `")
+        lines.append("`---  ----------  -------  ---------`")
+
+        for idx, row in enumerate(rows, 1):
+            merchant = row[0][:10]
+            spread = ((row[4] or 0) - (row[5] or 0)) / (row[5] or 1) * 100
+            volumen = row[3] or 0
+
+            lines.append(
+                f"`{idx:2d}  @{merchant:<10}  {spread:>5.2f}%  {volumen:>8.0f}`"
+            )
+
+        lines.append("")
+        lines.append("💡 *Estables = spread consistente durante el día*")
+
+        return "\n".join(lines)
+
+    # ===========================================
+    # CASO 9: Merchants rapidos
+    # ===========================================
+    if token == 'rapidos':
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+
+        c.execute("""
+            SELECT 
+                merchant,
+                SUM(ad_count) as total_ops,
+                SUM(volume_usdt) as volumen_total,
+                COUNT(DISTINCT hour) as horas_activas,
+                AVG(ad_count) as ops_por_hora
+            FROM merchant_stats
+            WHERE pair = ? AND date = ?
+            GROUP BY merchant
+            HAVING horas_activas >= 3
+            ORDER BY ops_por_hora DESC
+            LIMIT 10
+        """, (pair, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
+
+        rows = c.fetchall()
+        conn.close()
+
+        if not rows:
+            return "⚠️ No hay suficientes datos de merchants rápidos hoy."
+
+        lines = ["⚡ **MERCHANTS RÁPIDOS (hoy)**", ""]
+        lines.append("` #  Merchant      Ops/h  Vol/hora `")
+        lines.append("`---  ----------  -----  ---------`")
+
+        for idx, row in enumerate(rows, 1):
+            merchant = row[0][:10]
+            ops_por_hora = row[4] or 0
+            volumen_hora = (row[2] or 0) / (row[3] or 1)
+
+            lines.append(
+                f"`{idx:2d}  @{merchant:<10}  {ops_por_hora:>4.0f}   {volumen_hora:>8.0f}`"
+            )
+
+        lines.append("")
+        lines.append("💡 *Rápidos = alta frecuencia de operaciones por hora*")
+
+        return "\n".join(lines)
+
+    # ===========================================
     # CASO 7: Perfil de merchant especifico (@nombre o nombre directo)
     # ===========================================
     if token.startswith('@'):
@@ -338,8 +548,61 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
             "• `/merchant sell` - Top vendedores\n"
             "• `/merchant bots` - Detectar bots\n"
             "• `/merchant grandes` - Volumen destacado\n"
+            "• `/merchant estables` - Spread consistente\n"
+            "• `/merchant rapidos` - Alta frecuencia de operaciones\n"
             "• `/merchant search <texto>` - Buscar merchants\n"
             "• `/merchant @usuario` - Perfil de merchant"
         )
 
-    return _build_merchant_profile(name, pair)
+    stats = _fetch_merchant_stats(name, pair)
+
+    if not stats:
+        # Fallback a la version de RAM si es muy reciente y no hay stats en BD hoy
+        ram_profile = _build_merchant_profile(name, pair)
+        if "sin actividad" not in ram_profile.lower() and "⚠️ ram" not in ram_profile.lower():
+            return ram_profile
+        return f"⚠️ Merchant `{name}` sin actividad en las últimas 24h.\n💡 Los datos se actualizan periódicamenta."
+
+    # Formatear números
+    vol_24h_str = f"{stats['vol_24h']:,.0f}".replace(',', '.')
+    vol_7d_str = f"{stats['vol_7d']:,.0f}".replace(',', '.')
+
+    # Determinar emoji según volumen
+    if stats['vol_24h'] > 20000:
+        vol_emoji = "🐋"  # Ballena
+    elif stats['vol_24h'] > 5000:
+        vol_emoji = "🐬"  # Delfín
+    else:
+        vol_emoji = "🐟"  # Pez
+
+    lines = [
+        f"👤 **PERFIL: @{stats['merchant']}** ({pair})",
+        f"• {vol_emoji} Volumen 24h: **{vol_24h_str} USD**",
+        f"• 📅 Volumen 7d: **{vol_7d_str} USD** ({stats['dias_activos']} días activos)",
+        f"• 📊 Spread promedio: **{stats['spread_pct']:.2f}%**",
+        f"• 🔄 Operaciones 24h: **{stats['ops_24h']}**",
+        f"• ⏰ Horario pico: **{stats['hora_pico']}**",
+        f"• 🛡️ Confiabilidad: **{stats['confiabilidad']}**",
+        ""
+    ]
+
+    # Mostrar precios si están disponibles
+    if stats['precio_compra'] and stats['precio_compra'] > 0:
+        lines.append(
+            f"• 💰 Precio compra típico: **{stats['precio_compra']:.2f}**")
+    if stats['precio_venta'] and stats['precio_venta'] > 0:
+        lines.append(
+            f"• 💸 Precio venta típico: **{stats['precio_venta']:.2f}**")
+
+    # Añadir interpretación
+    lines.append("")
+    if stats['confiabilidad'] == "🟢 ALTA":
+        lines.append(
+            "✅ **Merchant confiable** - Ideal para operaciones recurrentes")
+    elif stats['confiabilidad'] == "🟡 MEDIA":
+        lines.append(
+            "⚠️ **Merchant moderado** - Verificar disponibilidad actual")
+    else:
+        lines.append("🔍 **Merchant nuevo o esporádico** - Operar con cautela")
+
+    return "\n".join(lines)
