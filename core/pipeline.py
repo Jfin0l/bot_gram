@@ -1,4 +1,5 @@
 import math
+import statistics
 from core import db
 from datetime import datetime, timezone
 
@@ -37,7 +38,8 @@ def _analyze_list(precios, volums, config):
     n = len(precios)
     avg_simple = sum(precios) / n
     if config.get("ponderacion_volumen", False) and sum(volums) > 0:
-        avg_ponderado = sum(p * v for p, v in zip(precios, volums)) / sum(volums)
+        avg_ponderado = sum(
+            p * v for p, v in zip(precios, volums)) / sum(volums)
     else:
         avg_ponderado = avg_simple
 
@@ -49,7 +51,8 @@ def _analyze_list(precios, volums, config):
     else:
         desv_std = 0
 
-    coef_var = (desv_std / avg_simple) * 100 if avg_simple and avg_simple != 0 else 0
+    coef_var = (desv_std / avg_simple) * \
+        100 if avg_simple and avg_simple != 0 else 0
 
     limite_sup = avg_simple * (1 + config.get("limite_outlier", 0.025))
     limite_inf = avg_simple * (1 - config.get("limite_outlier", 0.025))
@@ -76,7 +79,8 @@ def build_data_from_db(config: dict):
     fetched = {}
     for fiat in fiats:
         for tt in ("BUY", "SELL"):
-            rows = db.fetch_latest_raw(exchange=None, fiat=fiat, trade_type=tt, limit=1)
+            rows = db.fetch_latest_raw(
+                exchange=None, fiat=fiat, trade_type=tt, limit=1)
             fetched[f"{fiat}_{tt}"] = rows[0]["raw"] if rows else []
 
     # asignar
@@ -85,35 +89,45 @@ def build_data_from_db(config: dict):
     ves_buy = fetched.get("VES_BUY", [])
     ves_sell = fetched.get("VES_SELL", [])
 
-    # para tasas usamos los primeros N elementos de cada lista (si existen)
-    n = config.get("filas_tasa_remesa", 5)
-    def first_n(lst):
-        return lst[:n]
+    # Para tasas ahora usamos una ventana más profunda (posiciones 40-60) para mayor estabilidad
+    # y usamos la MEDIANA para ignorar outliers extremos.
+    start, end = 40, 60
 
-    cop_buy_tasa = first_n(cop_buy)
-    cop_sell_tasa = first_n(cop_sell)
-    ves_buy_tasa = first_n(ves_buy)
-    ves_sell_tasa = first_n(ves_sell)
-
-    def extract_prices(lista):
+    def extract_prices_deep(lista):
         try:
-            return [float(x.get("adv", {}).get("price")) for x in lista if x and x.get("adv")]
+            # Slicing de la posición 40 a la 60 (ajustado para alejarse del top 10 volátil)
+            sub_list = lista[start:end]
+            if not sub_list:
+                # Fallback si no hay suficientes anuncios: tomar lo que haya después del 10
+                sub_list = lista[10:30]
+
+            prices = [float(x.get("adv", {}).get("price"))
+                      for x in sub_list if x and x.get("adv")]
+            return prices
         except Exception:
             return []
 
-    precios_cop_buy = extract_prices(cop_buy_tasa)
-    precios_cop_sell = extract_prices(cop_sell_tasa)
-    precios_ves_buy = extract_prices(ves_buy_tasa)
-    precios_ves_sell = extract_prices(ves_sell_tasa)
+    precios_cop_buy = extract_prices_deep(cop_buy)
+    precios_cop_sell = extract_prices_deep(cop_sell)
+    precios_ves_buy = extract_prices_deep(ves_buy)
+    precios_ves_sell = extract_prices_deep(ves_sell)
 
-    avg_cop_buy = sum(precios_cop_buy) / len(precios_cop_buy) if precios_cop_buy else None
-    avg_cop_sell = sum(precios_cop_sell) / len(precios_cop_sell) if precios_cop_sell else None
-    avg_ves_buy = sum(precios_ves_buy) / len(precios_ves_buy) if precios_ves_buy else None
-    avg_ves_sell = sum(precios_ves_sell) / len(precios_ves_sell) if precios_ves_sell else None
+    def get_stable_avg(prices):
+        if not prices:
+            return None
+        return statistics.median(prices)
 
-    tasa_cop_ves_5 = (avg_cop_buy / avg_ves_sell * 1.05) if avg_cop_buy and avg_ves_sell else None
-    tasa_cop_ves_10 = (avg_cop_buy / avg_ves_sell * 1.10) if avg_cop_buy and avg_ves_sell else None
-    tasa_ves_cop_5 = (avg_ves_buy / avg_cop_sell * 1.05) if avg_ves_buy and avg_cop_sell else None
+    avg_cop_buy = get_stable_avg(precios_cop_buy)
+    avg_cop_sell = get_stable_avg(precios_cop_sell)
+    avg_ves_buy = get_stable_avg(precios_ves_buy)
+    avg_ves_sell = get_stable_avg(precios_ves_sell)
+
+    tasa_cop_ves_5 = (avg_cop_buy / avg_ves_sell *
+                      1.05) if avg_cop_buy and avg_ves_sell else None
+    tasa_cop_ves_10 = (avg_cop_buy / avg_ves_sell *
+                       1.10) if avg_cop_buy and avg_ves_sell else None
+    tasa_ves_cop_5 = (avg_ves_buy / avg_cop_sell *
+                      1.05) if avg_ves_buy and avg_cop_sell else None
 
     # análisis profundo
     precios_cb, vol_cb = _extract_prices_and_vols(cop_buy)
@@ -136,11 +150,13 @@ def build_data_from_db(config: dict):
 
     arb_cop_to_ves = None
     if avg_cop_buy_for_arbit and avg_ves_sell_for_arbit:
-        arb_cop_to_ves = (avg_ves_sell_for_arbit / avg_cop_buy_for_arbit - 1) * 100
+        arb_cop_to_ves = (avg_ves_sell_for_arbit /
+                          avg_cop_buy_for_arbit - 1) * 100
 
     arb_ves_to_cop = None
     if avg_ves_buy_for_arbit and avg_cop_sell_for_arbit:
-        arb_ves_to_cop = (avg_cop_sell_for_arbit / avg_ves_buy_for_arbit - 1) * 100
+        arb_ves_to_cop = (avg_cop_sell_for_arbit /
+                          avg_ves_buy_for_arbit - 1) * 100
 
     result = {
         "timestamps": {"utc": datetime.now(timezone.utc).isoformat()},

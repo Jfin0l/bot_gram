@@ -1,5 +1,5 @@
 import logging
-import pytz 
+import pytz
 from datetime import datetime
 from core import pipeline, db
 from config import BOT_TOKEN, CHAT_ID, OWNER_ID, log
@@ -27,8 +27,11 @@ def format_tasa(data: dict) -> str:
     precios_cop_sell = data.get("COP", {}).get("promedio_sell_tasa")
     precios_cop_buy = data.get("COP", {}).get("promedio_buy_tasa")
 
-    zelle_bs = precios_ves_sell * 0.915 if precios_ves_sell else None
+    # Metodo Zelle: Ajustado a 5% de margen (Buy +5%, Sell -5%)
+    zelle_bs = precios_ves_sell * 0.95 if precios_ves_sell else None
     bs_zelle = precios_ves_buy * 1.05 if precios_ves_buy else None
+
+    # Metodo USD-COP: Manteniendo el 5% de margen solicitado
     usd_cop_buy = precios_cop_sell * 0.95 if precios_cop_sell else None
     usd_cop_sell = precios_cop_buy * 1.05 if precios_cop_buy else None
 
@@ -38,10 +41,12 @@ def format_tasa(data: dict) -> str:
     lines.append(f"🕒 {hora_colombia.strftime('%Y-%m-%d %H:%M:%S')} (Colombia)")
     lines.append("")
     lines.append("🇨🇴 COP → 🇻🇪 VES")
-    lines.append(f"• {tasas.get('cop_ves_10pct'):.2f}" if tasas.get('cop_ves_10pct') else "• +10% → N/D")
+    lines.append(f"• {tasas.get('cop_ves_10pct'):.2f}" if tasas.get(
+        'cop_ves_10pct') else "• +10% → N/D")
     lines.append("")
     lines.append("🇻🇪 VES → 🇨🇴 COP")
-    lines.append(f"• {tasas.get('ves_cop_5pct'):.4f}" if tasas.get('ves_cop_5pct') else "• +5% → N/D")
+    lines.append(f"• {tasas.get('ves_cop_5pct'):.4f}" if tasas.get(
+        'ves_cop_5pct') else "• +5% → N/D")
     lines.append("")
     if zelle_bs:
         lines.append(f"• Zelle → Bs.: {zelle_bs:,.0f}")
@@ -49,8 +54,8 @@ def format_tasa(data: dict) -> str:
         lines.append("• Zelle → Bs.: N/D")
     if bs_zelle:
         lines.append(f"• Bs. → Zelle: {bs_zelle:,.0f}")
-    else:        
-        lines.append("• Bs. → Zelle: N/D") 
+    else:
+        lines.append("• Bs. → Zelle: N/D")
     lines.append("")
     if usd_cop_buy:
         lines.append(f"• Compra USDCOP: {usd_cop_buy:,.0f}")
@@ -64,7 +69,8 @@ def format_tasa(data: dict) -> str:
     lines.append("")
     lines.append("AVISO IMPORTANTE: ")
     lines.append("No garantizamos la exactitud de estos datos. Usted es el unico responsasble de las decisiones que tome basandose en esta informacion.")
-    lines.append("El administrador del canal no se hace responsable por perdidas o daños derivados del uso de esta informacion.")
+    lines.append(
+        "El administrador del canal no se hace responsable por perdidas o daños derivados del uso de esta informacion.")
     lines.append("")
     lines.append("atte. FastMoney.")
     lines.append("")
@@ -135,7 +141,8 @@ def send_message(chat_id: str, text: str, parse_mode: str = "HTML", dry_run: boo
         # Usar un event loop para ejecutar la corrutina de forma síncrona
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(bot.send_message(chat_id=chat_id, text=text, parse_mode=parse_mode))
+        loop.run_until_complete(bot.send_message(
+            chat_id=chat_id, text=text, parse_mode=parse_mode))
         loop.close()
         return True
     except Exception as e:
@@ -155,7 +162,8 @@ def send_tasa_to_channel(config: dict, chat_id: str = None, dry_run: bool = Fals
 
 def start_notifier_scheduler(config: dict, interval: int = 3600, chat_id: str = None, dry_run: bool = False):
     if BackgroundScheduler is None:
-        log.warning("apscheduler not available; notifier scheduler disabled (fallback).")
+        log.warning(
+            "apscheduler not available; notifier scheduler disabled (fallback).")
 
         class Dummy:
             def shutdown(self):
@@ -173,5 +181,6 @@ def start_notifier_scheduler(config: dict, interval: int = 3600, chat_id: str = 
 
     sched.add_job(job, "interval", seconds=interval, id="notifier_tasa")
     sched.start()
-    log.info(f"Notifier scheduler iniciado (every {interval}s, dry_run={dry_run})")
+    log.info(
+        f"Notifier scheduler iniciado (every {interval}s, dry_run={dry_run})")
     return sched
