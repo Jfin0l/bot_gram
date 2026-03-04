@@ -28,8 +28,8 @@ def create_and_store_snapshots(config):
             "top1_vol": None,
             "top1_nick": None,
             "top3_prices": str([]),
-            "arb_estimate_cop_to_ves_pct": data["arbitraje"].get("cop_to_ves_pct"),
-            "arb_estimate_ves_to_cop_pct": data["arbitraje"].get("ves_to_cop_pct"),
+            "arb_estimate_cop_to_ves_pct": data["arbitraje"].get("eficiencia_pct") if data.get("arbitraje") else None,
+            "arb_estimate_ves_to_cop_pct": data["arbitraje"].get("tasa_p2p") if data.get("arbitraje") else None,
         }
         db.save_snapshot_summary("USDT-COP", cop_summary)
     except Exception as e:
@@ -50,8 +50,8 @@ def create_and_store_snapshots(config):
             "top1_vol": None,
             "top1_nick": None,
             "top3_prices": str([]),
-            "arb_estimate_cop_to_ves_pct": data["arbitraje"].get("cop_to_ves_pct"),
-            "arb_estimate_ves_to_cop_pct": data["arbitraje"].get("ves_to_cop_pct"),
+            "arb_estimate_cop_to_ves_pct": data["arbitraje"].get("eficiencia_pct") if data.get("arbitraje") else None,
+            "arb_estimate_ves_to_cop_pct": data["arbitraje"].get("tasa_p2p") if data.get("arbitraje") else None,
         }
         db.save_snapshot_summary("USDT-VES", ves_summary)
     except Exception as e:

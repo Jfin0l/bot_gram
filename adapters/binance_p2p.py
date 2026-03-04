@@ -4,6 +4,7 @@ import logging
 
 log = logging.getLogger(__name__)
 
+
 def _fetch_ads(tradeType: str, fiat: str, min_rows: int = 100, max_pages: int = 3):
     """
     Llama al endpoint oficial de Binance P2P y devuelve la lista 'data'.
@@ -35,11 +36,13 @@ def _fetch_ads(tradeType: str, fiat: str, min_rows: int = 100, max_pages: int = 
             if not data:
                 break
             collected.extend(data)
-            log.info(f"🔹 page {page}: {len(data)} anuncios {tradeType} obtenidos ({fiat})")
+            log.info(
+                f"🔹 page {page}: {len(data)} anuncios {tradeType} obtenidos ({fiat})")
             if len(collected) >= min_rows:
                 break
 
-        log.info(f"🔹 total {len(collected)} anuncios {tradeType} recolectados ({fiat})")
+        log.info(
+            f"🔹 total {len(collected)} anuncios {tradeType} recolectados ({fiat})")
         return collected
     except Exception as e:
         log.error(f"❌ Error al obtener {tradeType}-{fiat}: {e}")
@@ -51,7 +54,8 @@ def get_ads(fiat="COP", min_rows: int = 100, max_pages: int = 10):
     Intenta paginar hasta `min_rows` anuncios por lado, con un máximo de `max_pages` páginas.
     """
     buy_data = _fetch_ads("BUY", fiat, min_rows=min_rows, max_pages=max_pages)
-    sell_data = _fetch_ads("SELL", fiat, min_rows=min_rows, max_pages=max_pages)
+    sell_data = _fetch_ads(
+        "SELL", fiat, min_rows=min_rows, max_pages=max_pages)
 
     def simplify(raw_list):
         ads = []
@@ -60,9 +64,10 @@ def get_ads(fiat="COP", min_rows: int = 100, max_pages: int = 10):
                 ad = adv["adv"]
                 advertiser = adv.get("advertiser", {})
                 ads.append({
-                    "price": round(float(ad["price"]), 1),
+                    "price": round(float(ad["price"]), 2),
                     "min": float(ad["minSingleTransAmount"]),
                     "max": float(ad["dynamicMaxSingleTransAmount"]),
+                    "quantity": float(ad.get("tradableQuantity") or ad.get("surplusAmount") or 0),
                     "nick": advertiser.get("nickName", "N/A"),
                     "orders": advertiser.get("monthOrderCount", 0),
                     "rate": advertiser.get("monthFinishRate", "0%")

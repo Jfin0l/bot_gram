@@ -71,38 +71,22 @@ def _analyze_list(precios, volums, config):
     }
 
 
-def build_data_from_db(config: dict):
-    """Construye el mismo diccionario de salida que antes, pero leyendo la última entrada guardada por fiat/tradeType."""
-    fiats = list(config.get("monedas", {}).keys()) or ["COP", "VES"]
-
-    # obtener la última fila por combinación
-    fetched = {}
-    for fiat in fiats:
-        for tt in ("BUY", "SELL"):
-            rows = db.fetch_latest_raw(
-                exchange=None, fiat=fiat, trade_type=tt, limit=1)
-            fetched[f"{fiat}_{tt}"] = rows[0]["raw"] if rows else []
-
-    # asignar
-    cop_buy = fetched.get("COP_BUY", [])
-    cop_sell = fetched.get("COP_SELL", [])
-    ves_buy = fetched.get("VES_BUY", [])
-    ves_sell = fetched.get("VES_SELL", [])
-
-    # Para tasas ahora usamos una ventana más profunda (posiciones 40-60) para mayor estabilidad
-    # y usamos la MEDIANA para ignorar outliers extremos.
+def _build_data_structure(cop_buy, cop_sell, ves_buy, ves_sell, config):
+    # Para tasas usamos una ventana profunda (posiciones 40-60)
     start, end = 40, 60
 
     def extract_prices_deep(lista):
         try:
-            # Slicing de la posición 40 a la 60 (ajustado para alejarse del top 10 volátil)
-            sub_list = lista[start:end]
-            if not sub_list:
-                # Fallback si no hay suficientes anuncios: tomar lo que haya después del 10
-                sub_list = lista[10:30]
+            # Si es lista de Snapshots (Ads), convertirlas a formato dummy compatible o extraer directo
+            # Si es lista de ads de RAM:
+            if lista and hasattr(lista[0], 'price'):
+                sub_list = lista[start:end] or lista[10:30]
+                return [float(x.price) for x in sub_list]
 
+            # Si es lista de dicts (fetch_latest_raw):
+            sub_list = lista[start:end] or lista[10:30]
             prices = [float(x.get("adv", {}).get("price"))
-                      for x in sub_list if x and x.get("adv")]
+                      for x in sub_list if (x and x.get("adv"))]
             return prices
         except Exception:
             return []
@@ -129,11 +113,19 @@ def build_data_from_db(config: dict):
     tasa_ves_cop_5 = (avg_ves_buy / avg_cop_sell *
                       1.05) if avg_ves_buy and avg_cop_sell else None
 
-    # análisis profundo
-    precios_cb, vol_cb = _extract_prices_and_vols(cop_buy)
-    precios_cs, vol_cs = _extract_prices_and_vols(cop_sell)
-    precios_vb, vol_vb = _extract_prices_and_vols(ves_buy)
-    precios_vs, vol_vs = _extract_prices_and_vols(ves_sell)
+    # análisis profundo (usando helpers que ya aceptan dicts)
+    # Si son Ads de RAM, convertirlos a dicts para compatibilidad temporal o actualizar helpers
+    def to_raw(lista):
+        if not lista:
+            return []
+        if hasattr(lista[0], 'price'):
+            return [{"adv": {"price": x.price, "dynamicMaxSingleTransAmount": x.quantity}} for x in lista]
+        return lista
+
+    precios_cb, vol_cb = _extract_prices_and_vols(to_raw(cop_buy))
+    precios_cs, vol_cs = _extract_prices_and_vols(to_raw(cop_sell))
+    precios_vb, vol_vb = _extract_prices_and_vols(to_raw(ves_buy))
+    precios_vs, vol_vs = _extract_prices_and_vols(to_raw(ves_sell))
 
     info_cop_buy = _analyze_list(precios_cb, vol_cb, config)
     info_cop_sell = _analyze_list(precios_cs, vol_cs, config)
@@ -148,17 +140,23 @@ def build_data_from_db(config: dict):
     avg_ves_buy_for_arbit = _choose_avg(info_ves_buy)
     avg_ves_sell_for_arbit = _choose_avg(info_ves_sell)
 
-    arb_cop_to_ves = None
-    if avg_cop_buy_for_arbit and avg_ves_sell_for_arbit:
-        arb_cop_to_ves = (avg_ves_sell_for_arbit /
-                          avg_cop_buy_for_arbit - 1) * 100
+    # Arbitraje Cross-Border (COP <-> VES)
+    # Tasa implícita TAKER/MAKER: Compro USDT con COP, Vendo USDT por VES
+    # Incluimos comisión de Binance (0.16% por cada operación)
+    fee = 0.0016
+    tasa_p2p_cop_ves = None
+    if avg_cop_buy and avg_ves_sell:
+        # Costo unitario aumentado por fee / Recibo unitario disminuido por fee
+        tasa_p2p_cop_ves = (avg_cop_buy * (1 + fee)) / \
+            (avg_ves_sell * (1 - fee))
 
-    arb_ves_to_cop = None
-    if avg_ves_buy_for_arbit and avg_cop_sell_for_arbit:
-        arb_ves_to_cop = (avg_cop_sell_for_arbit /
-                          avg_ves_buy_for_arbit - 1) * 100
+    # Eficiencia comparada con nuestra tasa preferencial (+5%)
+    eficiencia_cop_ves = None
+    if tasa_p2p_cop_ves and tasa_cop_ves_5:
+        # Si P2P es 6.50 y nuestra tasa es 6.80, P2P es mas eficiente para el que envia (-4.4%)
+        eficiencia_cop_ves = (tasa_p2p_cop_ves / tasa_cop_ves_5 - 1) * 100
 
-    result = {
+    return {
         "timestamps": {"utc": datetime.now(timezone.utc).isoformat()},
         "COP": {
             "promedio_buy_tasa": avg_cop_buy,
@@ -182,8 +180,9 @@ def build_data_from_db(config: dict):
             "ves_sell": info_ves_sell,
         },
         "arbitraje": {
-            "cop_to_ves_pct": arb_cop_to_ves,
-            "ves_to_cop_pct": arb_ves_to_cop,
+            "tasa_p2p": tasa_p2p_cop_ves,
+            "eficiencia_pct": eficiencia_cop_ves,
+            "orientacion": "P2P más barato" if eficiencia_cop_ves and eficiencia_cop_ves < 0 else "Remesa más barata"
         },
         "raw": {
             "cop_buy_raw": cop_buy,
@@ -193,4 +192,43 @@ def build_data_from_db(config: dict):
         },
     }
 
-    return result
+
+def build_data_from_db(config: dict):
+    """Construye el mismo diccionario de salida que antes, pero leyendo la última entrada guardada."""
+    fiats = list(config.get("monedas", {}).keys()) or ["COP", "VES"]
+    fetched = {}
+    for fiat in fiats:
+        for tt in ("BUY", "SELL"):
+            rows = db.fetch_latest_raw(
+                exchange=None, fiat=fiat, trade_type=tt, limit=1)
+            fetched[f"{fiat}_{tt}"] = rows[0]["raw"] if rows else []
+
+    return _build_data_structure(
+        fetched.get("COP_BUY", []), fetched.get("COP_SELL", []),
+        fetched.get("VES_BUY", []), fetched.get("VES_SELL", []),
+        config
+    )
+
+
+def build_data_from_ram(config: dict):
+    from core.ram_window import get_global
+    rw = get_global()
+    if not rw:
+        return None
+
+    with rw.lock:
+        def get_ads(pair, side):
+            dq = rw.pair_index.get(pair)
+            if not dq:
+                return []
+            snap = dq[-1]
+            return [a for a in snap.ads if a.side == side]
+
+        cb = get_ads('USDT-COP', 'buy')
+        cs = get_ads('USDT-COP', 'sell')
+        vb = get_ads('USDT-VES', 'buy')
+        vs = get_ads('USDT-VES', 'sell')
+
+        if not cb and not vb:
+            return None
+        return _build_data_structure(cb, cs, vb, vs, config)

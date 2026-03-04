@@ -26,12 +26,13 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
             for pair in CONFIG.get('pares', []):
                 fiat = pair.split('-')[1]
                 # allow more pages (10 ads per page) to reach ~min_rows target
-                buy_ads, sell_ads = binance_p2p.get_ads(fiat=fiat, min_rows=min_rows, max_pages=12)
+                buy_ads, sell_ads = binance_p2p.get_ads(
+                    fiat=fiat, min_rows=min_rows, max_pages=12)
                 ads = []
                 for a in buy_ads:
                     ads.append({
                         'price': a.get('price'),
-                        'quantity': a.get('max') or a.get('max_limit') or a.get('max_single') or 0,
+                        'quantity': a.get('quantity') or 0,
                         'merchant_name': a.get('nick') or a.get('merchant'),
                         'side': 'buy',
                         'min_limit': a.get('min') or a.get('min_limit') or 0,
@@ -41,7 +42,7 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
                 for a in sell_ads:
                     ads.append({
                         'price': a.get('price'),
-                        'quantity': a.get('max') or a.get('max_limit') or a.get('max_single') or 0,
+                        'quantity': a.get('quantity') or 0,
                         'merchant_name': a.get('nick') or a.get('merchant'),
                         'side': 'sell',
                         'min_limit': a.get('min') or a.get('min_limit') or 0,
@@ -61,12 +62,14 @@ def start_worker(fetch_interval: int = 300, snapshot_interval: int = 600, ingest
     global _ingest_thread, _ingest_stop_event, _sched, _window
     if _sched is not None:
         return
-    _sched = start_scheduler(CONFIG, fetch_interval=fetch_interval, snapshot_interval=snapshot_interval)
+    _sched = start_scheduler(
+        CONFIG, fetch_interval=fetch_interval, snapshot_interval=snapshot_interval)
     _window = ram_window.init_global(window_seconds=6 * 3600)
     aggregator.start_aggregator(_window, bucket_seconds=600)
 
     _ingest_stop_event.clear()
-    _ingest_thread = threading.Thread(target=_ingest_loop, args=(_window, _ingest_stop_event, ingest_interval, ingest_min_rows), daemon=False)
+    _ingest_thread = threading.Thread(target=_ingest_loop, args=(
+        _window, _ingest_stop_event, ingest_interval, ingest_min_rows), daemon=False)
     _ingest_thread.start()
 
 

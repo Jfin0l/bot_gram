@@ -4,6 +4,7 @@ from typing import Tuple, List, Optional
 
 from core.ram_window import get_global
 from core import db as core_db
+from core.processor import format_num, format_vol, ai_meta
 from types import SimpleNamespace
 
 
@@ -21,19 +22,19 @@ def _get_latest_snapshot(pair: str):
 
 def _ordered_lists(snapshot):
     """Ordena compradores y vendedores según libro de órdenes real.
-    
+
     - BUY: mayor precio primero (el que más paga)
     - SELL: menor precio primero (el que vende más barato)
     """
     buys = [ad for ad in snapshot.ads if ad.side == 'buy']
     sells = [ad for ad in snapshot.ads if ad.side == 'sell']
-    
+
     # Compra: mayor precio primero (quien más paga)
     buys_sorted = sorted(buys, key=lambda a: a.price)
-    
+
     # Venta: menor precio primero (quien vende más barato)
     sells_sorted = sorted(sells, key=lambda a: a.price, reverse=True)
-    
+
     return buys_sorted, sells_sorted
 
 
@@ -45,17 +46,17 @@ def _spread_from_pair(buy, sell) -> Optional[float]:
         return None
 
 
-def _format_spread_result(title: str, spreads: List[float], vols: List[float], 
+def _format_spread_result(title: str, spreads: List[float], vols: List[float],
                           start_pos: int = None, end_pos: int = None) -> str:
     """Formatea resultados de spread de manera legible."""
     if not spreads:
         return "⚠️ No hay datos suficientes para calcular spreads."
-    
+
     avg_spread = mean(spreads)
     avg_vol = mean(vols) if vols else 0
     min_spread = min(spreads)
     max_spread = max(spreads)
-    
+
     # Determinar rango para el mensaje
     if start_pos is not None and end_pos is not None:
         if start_pos == end_pos:
@@ -64,38 +65,51 @@ def _format_spread_result(title: str, spreads: List[float], vols: List[float],
             range_text = f"Posiciones {start_pos}–{end_pos}"
     else:
         range_text = title
-    
+
     # Construir mensaje con explicación
     lines = [
-        f"📊 **{range_text}**",
-        f"• Spread promedio: **{avg_spread:.2f}%**",
+        f"📊 <b>{range_text}</b>",
+        f"• Spread promedio: <b>{avg_spread:.2f}%</b>",
         f"• Rango de spreads: {min_spread:.2f}% – {max_spread:.2f}%",
-        f"• Volumen visible promedio: {avg_vol:.2f} USDT",
+        f"• Volumen visible promedio: <b>{format_vol(avg_vol)} USDT</b>",
         ""
     ]
-    
+
     # Añadir interpretación
     if avg_spread > 2.0:
-        lines.append("✅ **Spread AMPLIO** - Buen momento para operar")
+        lines.append(
+            "✅ <b>Spread AMPLIO</b> - Excelente oportunidad de arbitraje")
     elif avg_spread > 1.0:
-        lines.append("⚖️ **Spread MODERADO** - Evaluar volumen")
+        lines.append(
+            "⚖️ <b>Spread MODERADO</b> - Evaluar liquidez antes de operar")
+    elif avg_spread > 0.5:
+        lines.append(
+            "⚠️ <b>Spread ESTRECHO</b> - Mercado competitivo / Baja rentabilidad")
     else:
-        lines.append("⚠️ **Spread ESTRECHO** - Mercado competitivo")
-    
-    if avg_vol > 10000:
-        lines.append("💰 **Alto volumen** - Liquidez abundante")
+        lines.append(
+            "🔴 <b>Fuga de Capital</b> - Inversión de precios detectada")
+
+    if avg_vol > 15000:
+        lines.append("💰 <b>Liquidez ALTA</b> - Ejecución inmediata probable")
     elif avg_vol > 5000:
-        lines.append("💵 **Volumen medio** - Liquidez suficiente")
+        lines.append("💵 <b>Liquidez MEDIA</b> - Tiempo de ejecución moderado")
     else:
-        lines.append("🔄 **Bajo volumen** - Puede haber demoras")
-    
-    return "\n".join(lines)
+        lines.append(
+            "🔄 <b>Liquidez BAJA</b> - Riesgo de demora en el intercambio")
+
+    meta = {
+        "type": "spread_analysis",
+        "avg_spread": avg_spread,
+        "avg_vol": avg_vol,
+        "indicator": "AMPLIO" if avg_spread > 2 else "MODERADO" if avg_spread > 1 else "ESTRECHO"
+    }
+    return "\n".join(lines) + ai_meta(meta)
 
 
 def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
     """
     Procesa comandos /spread.
-    
+
     Formatos soportados:
     - /spread          : Promedio primeras 5 posiciones
     - /spread N        : Spread en posición específica (ej. /spread 10)
@@ -117,15 +131,15 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
                 f"• Usa `/spread` nuevamente cuando el worker esté activo"
             )
         return f"⚠️ No hay datos disponibles para {pair}. Inicia el worker."
-    
+
     # Obtener listas ordenadas
     buys, sells = _ordered_lists(snap)
     if not buys or not sells:
         return "⚠️ Datos insuficientes en el snapshot actual."
-    
+
     max_positions = min(len(buys), len(sells))
     token = (" ".join(args)).strip() if args else ""
-    
+
     # ===========================================
     # CASO 1: Sin argumentos → primeras 5 posiciones
     # ===========================================
@@ -138,9 +152,9 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
             if sp is not None:
                 spreads.append(sp)
                 vols.append(buys[i].quantity + sells[i].quantity)
-        
+
         return _format_spread_result("Primeras 5 posiciones", spreads, vols, 1, n)
-    
+
     # ===========================================
     # CASO 2: Número específico (ej. /spread 10)
     # ===========================================
@@ -148,23 +162,23 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         idx = int(token) - 1
         if idx < 0 or idx >= max_positions:
             return f"⚠️ Posición {token} fuera de rango (máx: {max_positions})"
-        
+
         sp = _spread_from_pair(buys[idx], sells[idx])
         if sp is None:
             return f"⚠️ No se pudo calcular spread para posición {token}"
-        
+
         vol = buys[idx].quantity + sells[idx].quantity
-        
+
         # Mensaje específico para una posición
         return (
-            f"📌 **Posición #{token}**\n"
-            f"• Spread: **{sp:.2f}%**\n"
-            f"• Volumen visible: {vol:.2f} USDT\n"
-            f"• Precio compra: {buys[idx].price:.2f}\n"
-            f"• Precio venta: {sells[idx].price:.2f}\n"
-            f"\n💡 *Un spread positivo indica oportunidad de arbitraje*"
-        )
-    
+            f"📌 <b>Posición #{token}</b>\n"
+            f"• Spread: <b>{sp:.2f}%</b>\n"
+            f"• Volumen visible: <b>{format_vol(vol)} USDT</b>\n"
+            f"• Precio compra: {format_num(buys[idx].price)}\n"
+            f"• Precio venta: {format_num(sells[idx].price)}\n"
+            f"\n💡 <i>Un spread positivo indica oportunidad de arbitraje</i>"
+        ) + ai_meta({"type": "spread_position", "pos": token, "spread": sp, "vol": vol})
+
     # ===========================================
     # CASO 3: Rango numérico (ej. /spread 10-20)
     # ===========================================
@@ -172,21 +186,21 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         parts = token.split('-')
         if len(parts) != 2:
             return "⚠️ Formato inválido. Usa: /spread 10-20"
-        
+
         try:
             start = int(parts[0])
             end = int(parts[1])
         except ValueError:
             return "⚠️ Los valores deben ser números enteros"
-        
+
         # Validar rango
         if start < 1 or end > max_positions or start > end:
             return f"⚠️ Rango inválido. Valores válidos: 1-{max_positions}"
-        
+
         # Convertir a índices base 0
         start_idx = start - 1
         end_idx = end - 1
-        
+
         spreads = []
         vols = []
         for i in range(start_idx, end_idx + 1):
@@ -194,34 +208,34 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
             if sp is not None:
                 spreads.append(sp)
                 vols.append(buys[i].quantity + sells[i].quantity)
-        
+
         if not spreads:
             return f"⚠️ No se pudieron calcular spreads en el rango {start}-{end}"
-        
+
         return _format_spread_result(f"Rango {start}-{end}", spreads, vols, start, end)
-    
+
     # ===========================================
     # CASO 4: Búsqueda por porcentaje (ej. /spread 1.25%)
     # ===========================================
     if token.endswith('%'):
         # Extraer el valor numérico (quitando el %)
         percent_str = token[:-1].strip()
-        
+
         # Manejar rangos de porcentaje (ej. 1-2%)
         if '-' in percent_str:
             parts = percent_str.split('-')
             if len(parts) != 2:
                 return "⚠️ Formato inválido. Usa: /spread 1-2%"
-            
+
             try:
                 min_pct = float(parts[0])
                 max_pct = float(parts[1])
             except ValueError:
                 return "⚠️ Los valores deben ser números (ej. /spread 1-2%)"
-            
+
             if min_pct >= max_pct:
                 return "⚠️ El valor mínimo debe ser menor que el máximo"
-            
+
             # Buscar posiciones en el rango de porcentaje
             matches = []
             for i in range(max_positions):
@@ -234,113 +248,119 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
                         'spread': sp,
                         'vol': buys[i].quantity + sells[i].quantity
                     })
-            
+
             if not matches:
                 return f"⚠️ No hay posiciones con spread entre {min_pct}% y {max_pct}%"
-            
+
             # Formatear respuesta
             lines = [
-                f"📊 **Posiciones con spread {min_pct}%–{max_pct}%**",
-                f"• Total encontradas: **{len(matches)}** posiciones",
+                f"📊 <b>Posiciones con spread {min_pct}%–{max_pct}%</b>",
+                f"• Total encontradas: <b>{len(matches)}</b> posiciones",
                 ""
             ]
-            
+
             # Mostrar primeras 10 para no saturar
             for idx, m in enumerate(matches[:10], 1):
-                lines.append(f"{idx:2d}. Pos #{m['pos']:3d} → Spread: **{m['spread']:.2f}%** | Vol: {m['vol']:.2f}")
-            
+                lines.append(
+                    f"{idx:2d}. Pos <code>#{m['pos']:3d}</code> → Spread: <b>{m['spread']:.2f}%</b> | Vol: {format_vol(m['vol'])}")
+
             if len(matches) > 10:
                 lines.append(f"   ... y {len(matches) - 10} más")
-            
+
             lines.append("")
-            lines.append("💡 *Usa /spread N para ver detalles de una posición específica*")
-            
-            return "\n".join(lines)
-        
+            lines.append(
+                "💡 *Usa /spread N para ver detalles de una posición específica*")
+
+            return "\n".join(lines) + ai_meta({"type": "spread_percent_range", "matches": len(matches)})
+
         # Si es un solo porcentaje (ej. /spread 1.25%)
         else:
             try:
                 target_pct = float(percent_str)
             except ValueError:
                 return "⚠️ Valor inválido. Usa: /spread 1.25%"
-            
+
             # Encontrar la posición con spread más cercano
             best_pos = None
             best_spread = None
             best_diff = float('inf')
             best_vol = 0
-            
+
             for i in range(max_positions):
                 sp = _spread_from_pair(buys[i], sells[i])
                 if sp is None:
                     continue
-                
+
                 diff = abs(sp - target_pct)
                 if diff < best_diff:
                     best_diff = diff
                     best_pos = i + 1
                     best_spread = sp
                     best_vol = buys[i].quantity + sells[i].quantity
-            
+
             if best_pos is None:
                 return f"⚠️ No se pudo encontrar posición cercana a {target_pct}%"
-            
+
             # Calcular precisión del match
-            accuracy = 100 - (best_diff / target_pct * 100) if target_pct > 0 else 0
-            
+            accuracy = 100 - (best_diff / target_pct *
+                              100) if target_pct > 0 else 0
+
             # Formatear respuesta con explicación
             lines = [
-                f"🎯 **Búsqueda: {target_pct}%**",
-                f"• Posición más cercana: **#{best_pos}**",
-                f"• Spread real: **{best_spread:.2f}%**",
+                f"🎯 <b>Búsqueda: {target_pct}%</b>",
+                f"• Posición más cercana: <b>#{best_pos}</b>",
+                f"• Spread real: <b>{best_spread:.2f}%</b>",
                 f"• Diferencia: {best_diff:.3f}% ({accuracy:.1f}% de precisión)",
-                f"• Volumen visible: {best_vol:.2f} USDT",
+                f"• Volumen visible: <b>{format_vol(best_vol)} USDT</b>",
                 ""
             ]
-            
+
             # Añadir contexto
             if best_spread > target_pct:
-                lines.append(f"📈 Este spread es **{best_spread - target_pct:.2f}% MAYOR** al objetivo")
+                lines.append(
+                    f"📈 Este spread es **{best_spread - target_pct:.2f}% MAYOR** al objetivo")
             else:
-                lines.append(f"📉 Este spread es **{target_pct - best_spread:.2f}% MENOR** al objetivo")
-            
+                lines.append(
+                    f"📉 Este spread es **{target_pct - best_spread:.2f}% MENOR** al objetivo")
+
             lines.append("")
-            lines.append(f"💡 *Para ver el spread exacto: `/spread {best_pos}`*")
-            
+            lines.append(
+                f"💡 *Para ver el spread exacto: `/spread {best_pos}`*")
+
             return "\n".join(lines)
-    
+
     # ===========================================
     # CASO 5: Análisis de viabilidad (ej. /spread >0.7)
     # ===========================================
     if token.startswith('>'):
         # Extraer el valor numérico (quitando el '>')
         threshold_str = token[1:].strip()
-        
+
         try:
             threshold = float(threshold_str)
         except ValueError:
             return "⚠️ Valor inválido. Usa: /spread >0.7 o /spread >1.23"
-        
+
         # Validar rango lógico
         if threshold <= 0:
             return "⚠️ El umbral debe ser mayor a 0%"
         if threshold > 10:
             return "⚠️ El umbral es muy alto (>10%). No hay posiciones con spreads tan altos."
-        
+
         # Calcular el rango de spreads a analizar: [threshold, threshold + 0.3]
         spread_min = threshold
         spread_max = threshold + 0.3
-        
+
         # PASO 1: Encontrar las posiciones que caen en este rango de spreads
         positions_in_range = []
         first_pos = None
         last_pos = None
-        
+
         for i in range(max_positions):
             sp = _spread_from_pair(buys[i], sells[i])
             if sp is None:
                 continue
-            
+
             if spread_min <= sp <= spread_max:
                 positions_in_range.append({
                     'pos': i + 1,
@@ -350,13 +370,13 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
                 if first_pos is None:
                     first_pos = i + 1
                 last_pos = i + 1
-        
+
         if not positions_in_range:
             # Buscar la posición más cercana para dar recomendación
             closest_pos = None
             closest_spread = None
             closest_diff = float('inf')
-            
+
             for i in range(max_positions):
                 sp = _spread_from_pair(buys[i], sells[i])
                 if sp is None:
@@ -366,7 +386,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
                     closest_diff = diff
                     closest_pos = i + 1
                     closest_spread = sp
-            
+
             if closest_pos:
                 direction = "aumentar" if closest_spread < threshold else "disminuir"
                 return (
@@ -376,51 +396,53 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
                 )
             else:
                 return f"⚠️ No se encontraron posiciones cerca de {threshold}%"
-        
+
         # PASO 2: Obtener datos históricos de la última hora desde RAM
         rw = get_global()
         if not rw:
             return "⚠️ No hay datos históricos disponibles. El worker debe estar activo."
-        
+
         cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
-        
+
         # Recolectar volúmenes históricos para el rango de posiciones
         historical_volumes = []
         snapshot_count = 0
-        
+
         with rw.lock:
             dq = rw.pair_index.get(pair, [])
             for snap in reversed(dq):
                 if snap.timestamp < cutoff:
                     break
-                
+
                 snapshot_count += 1
-                
+
                 # Obtener datos de ese snapshot
                 b_hist, s_hist = _ordered_lists(snap)
                 if len(b_hist) < last_pos or len(s_hist) < last_pos:
                     continue  # Snapshot no tiene suficientes posiciones
-                
+
                 # Sumar volumen en el rango de posiciones
                 total_vol_range = 0
                 for pos_idx in range(first_pos - 1, last_pos):
                     if pos_idx < len(b_hist) and pos_idx < len(s_hist):
-                        total_vol_range += b_hist[pos_idx].quantity + s_hist[pos_idx].quantity
-                
+                        total_vol_range += b_hist[pos_idx].quantity + \
+                            s_hist[pos_idx].quantity
+
                 historical_volumes.append(total_vol_range)
-        
+
         if not historical_volumes:
             return "⚠️ No hay suficientes snapshots históricos en la última hora."
-        
+
         # PASO 3: Calcular métricas
         avg_vol_per_snapshot = mean(historical_volumes)
         max_vol = max(historical_volumes)
         min_vol = min(historical_volumes)
-        
+
         # Proyectar volumen por hora (asumiendo snapshots cada ~2 minutos)
         snapshots_per_hour = len(historical_volumes)
-        estimated_hourly_volume = avg_vol_per_snapshot * (60 / 2)  # 2 min entre snapshots
-        
+        estimated_hourly_volume = avg_vol_per_snapshot * \
+            (60 / 2)  # 2 min entre snapshots
+
         # PASO 4: Determinar nivel de rotación
         if estimated_hourly_volume < 1000:
             rotation = "🔴 BAJA"
@@ -431,39 +453,41 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         else:
             rotation = "🟢 ALTA"
             recommendation = "✅ Ideal para arbitraje. Buen volumen y rotación."
-        
+
         # PASO 5: Construir mensaje
-        lines = [
-            f"📊 **ANÁLISIS DE VIABILIDAD**",
-            f"• Umbral: **>{threshold}%** | Rango: {spread_min:.2f}% – {spread_max:.2f}%",
-            f"• Bloque analizado: **Posiciones {first_pos} – {last_pos}**",
-            f"• Total posiciones en rango: {len(positions_in_range)}",
-            "",
-            f"**📈 Volumen histórico (última hora)**",
-            f"• Snapshots analizados: {snapshot_count}",
-            f"• Volumen promedio por snapshot: {avg_vol_per_snapshot:.2f} USDT",
-            f"• Volumen mínimo: {min_vol:.2f} USDT",
-            f"• Volumen máximo: {max_vol:.2f} USDT",
-            f"• **Volumen estimado por hora: {estimated_hourly_volume:.0f} USDT**",
-            "",
-            f"**🔄 Rotación: {rotation}**",
-            f"• {recommendation}",
-            "",
-            f"**💡 Posiciones en el bloque:**"
-        ]
-        
+            lines = [
+                f"📊 <b>ANÁLISIS DE VIABILIDAD</b>",
+                f"• Umbral: <b>>{threshold}%</b> | Rango: {spread_min:.2f}% – {spread_max:.2f}%",
+                f"• Bloque analizado: <b>Posiciones {first_pos} – {last_pos}</b>",
+                f"• Total posiciones en rango: {len(positions_in_range)}",
+                "",
+                f"📈 <b>Volumen histórico (última hora)</b>",
+                f"• Snapshots analizados: {snapshot_count}",
+                f"• Volumen promedio por snapshot: <b>{format_vol(avg_vol_per_snapshot)} USDT</b>",
+                f"• Volumen mínimo: {format_vol(min_vol)} USDT",
+                f"• Volumen máximo: {format_vol(max_vol)} USDT",
+                f"• <b>Volumen estimado por hora: {format_vol(estimated_hourly_volume)} USDT</b>",
+                "",
+                f"🔄 <b>Rotación: {rotation}</b>",
+                f"• {recommendation}",
+                "",
+                f"💡 <b>Posiciones en el bloque:</b>"
+            ]
+
         # Mostrar primeras 5 posiciones del bloque
         for idx, p in enumerate(positions_in_range[:5], 1):
-            lines.append(f"  {idx}. #{p['pos']:3d} → Spread: {p['spread']:.2f}% | Vol actual: {p['vol_actual']:.2f}")
-        
+            lines.append(
+                f"  {idx}. #{p['pos']:3d} → Spread: {p['spread']:.2f}% | Vol actual: {p['vol_actual']:.2f}")
+
         if len(positions_in_range) > 5:
             lines.append(f"  ... y {len(positions_in_range) - 5} más")
-        
+
         lines.append("")
-        lines.append(f"🔍 *Para ver detalles de una posición: `/spread {first_pos}`*")
-        
+        lines.append(
+            f"🔍 *Para ver detalles de una posición: `/spread {first_pos}`*")
+
         return "\n".join(lines)
-    
+
     # Si llegamos aquí, el comando no se reconoce
     return (
         "⚠️ **Comando no reconocido**\n\n"
@@ -474,6 +498,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         "• `/spread 1%` - Posición más cercana a 1%\n"
         "• `/spread >1.2` - Análisis de viabilidad"
     )
+
 
 '''
 from datetime import datetime, timezone, timedelta

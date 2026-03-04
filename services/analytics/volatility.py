@@ -4,6 +4,7 @@ from typing import List, Optional
 
 from core.ram_window import get_global
 from core import pipeline
+from core.processor import format_num, ai_meta
 
 
 def _get_volatility_history(pair: str, hours: int = 6) -> List[dict]:
@@ -124,14 +125,14 @@ def handle_volatility(args: List[str], pair: str = 'USDT-COP') -> str:
 
     # Construir mensaje
     lines = [
-        f"📊 **ANÁLISIS DE VOLATILIDAD** ({pair})",
+        f"📊 <b>ANÁLISIS DE VOLATILIDAD</b> ({pair})",
         "",
-        f"🌡️ **Nivel actual: {interp['emoji']} {interp['level']}**",
+        f"🌡️ <b>Nivel actual: {interp['emoji']} {interp['level']}</b>",
         f"• Coeficiente: {coef_var:.2f} (escala 0-5+)",
         f"• Variación precio: ± {variacion_valor:.0f} {fiat} en última hora",
         f"• Confianza: {max(0, 100 - coef_var*10):.0f}%",
         "",
-        f"📈 **Tendencia últimas 6h:**"
+        f"📈 <b>Tendencia últimas 6h:</b>"
     ]
 
     if not history:
@@ -150,13 +151,21 @@ def handle_volatility(args: List[str], pair: str = 'USDT-COP') -> str:
     # Recomendación
     lines.extend([
         "",
-        f"💡 **Recomendación:**",
-        f"{interp['advice']}",
+        f"💡 <b>Recomendación:</b>",
+        f"<i>{interp['advice']}</i>",
         "",
-        f"📚 **¿Qué es volatilidad?**",
+        f"📚 <b>¿Qué es volatilidad?</b>",
         f"Mide cuánto fluctúa el precio. {interp['desc']}",
         "",
-        f"🔍 *Usa `/spread >{1.0 if coef_var < 2 else 1.5}` para ver oportunidades*"
+        f"🔍 <i>Usa <code>/spread &gt;{1.0 if coef_var < 2 else 1.5}</code> para ver oportunidades</i>"
     ])
 
-    return "\n".join(lines)
+    meta = {
+        "type": "volatility_analysis",
+        "pair": pair,
+        "coef_var": coef_var,
+        "level": interp['level'],
+        "confidence": max(0, 100 - coef_var*10)
+    }
+
+    return "\n".join(lines) + ai_meta(meta)

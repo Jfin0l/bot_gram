@@ -6,6 +6,7 @@ import sqlite3
 
 from core.ram_window import get_global
 from core.db import DB_PATH
+from core.processor import format_num, format_vol, ai_meta
 
 
 def _cutoff(seconds: int = 3600):
@@ -156,7 +157,7 @@ def _top_merchants(pair: str, side: Optional[str] = None, limit: int = 10) -> Li
                 if side and ad.side != side:
                     continue
 
-                usdt_volume = ad.quantity / ad.price if ad.price > 0 else 0
+                usdt_volume = ad.quantity
 
                 stats = merchant_stats[merchant]
                 stats['vol_usdt'] += usdt_volume
@@ -185,7 +186,7 @@ def _format_merchant_list(merchants: List[Tuple], title: str, side_desc: str = "
     if not merchants:
         return "⚠️ No hay datos de merchants en la ultima hora."
 
-    lines = [f"🏆 **{title}**"]
+    lines = [f"🏆 <b>{title}</b>"]
 
     if side_desc:
         lines.append(f"📊 {side_desc}\n")
@@ -201,13 +202,13 @@ def _format_merchant_list(merchants: List[Tuple], title: str, side_desc: str = "
             rank_emoji = f"{idx}."
 
         lines.append(
-            f"{rank_emoji} `{m:<20}` "
-            f"Vol: {vol:>8.2f} USDT  "
-            f"Precio: {avg_price:>7.2f}  "
+            f"{rank_emoji} <code>@{m:<15}</code> "
+            f"Vol: {format_vol(vol):>8} USDT  "
+            f"Pr: {format_num(avg_price, 2):>7}  "
             f"Ops: {count:>3}"
         )
 
-    lines.append("\n💡 *Volumen total visible en la ultima hora*")
+    lines.append("\n💡 <i>Volumen total visible en la ultima hora</i>")
 
     return "\n".join(lines)
 
@@ -262,22 +263,31 @@ def _build_merchant_profile(name: str, pair: str) -> str:
 
     currency = "COP" if "COP" in pair else "VES"
     lines = [
-        "👤 **PERFIL DE MERCHANT**",
-        f"📛 Nombre: `{name}`",
+        "👤 <b>PERFIL DE MERCHANT</b>",
+        f"📛 Nombre: <code>{name}</code>",
         f"🎭 Rol: {role}",
         "",
-        "📊 **Actividad (ultima hora)**",
-        f"• **Anuncios publicados (1h):** {count}",
-        f"• Volumen total: {vol:.2f} USDT",
-        f"• Volumen promedio por ad: {(vol / count):.2f} USDT",
+        "📊 <b>Actividad (última hora)</b>",
+        f"• <b>Anuncios publicados (1h):</b> {count}",
+        f"• Volumen total: <b>{format_vol(vol)} USDT</b>",
+        f"• Volumen promedio por ad: <b>{format_vol(vol / count) if count > 0 else 0} USDT</b>",
         "",
-        "💰 **Precios**",
-        f"• Precio promedio: {avg_price:.2f} {currency}",
-        f"• Variacion: {price_variation:.2f}%",
+        "💰 <b>Precios</b>",
+        f"• Precio promedio: <b>{format_num(avg_price)} {currency}</b>",
+        f"• Variación: {price_variation:.2f}%",
         f"• Estabilidad: {stability}",
         "",
-        f"📈 **Score de actividad: {activity_score}/100**",
+        f"📈 <b>Score de actividad: {activity_score}/100</b>",
     ]
+
+    meta = {
+        "type": "merchant_profile",
+        "merchant": name,
+        "volume_1h": vol,
+        "ad_count_1h": count,
+        "avg_price": avg_price,
+        "activity_score": activity_score
+    }
 
     with rw.lock:
         latest_pair = rw.pair_index.get(pair)
@@ -288,15 +298,15 @@ def _build_merchant_profile(name: str, pair: str) -> str:
 
             for i, ad in enumerate(sorted(buys, key=lambda a: a.price, reverse=True), 1):
                 if ad.merchant == name:
-                    lines.append(f"• Posicion actual (compra): #{i}")
+                    lines.append(f"• Posición actual (compra): <b>#{i}</b>")
                     break
 
             for i, ad in enumerate(sorted(sells, key=lambda a: a.price), 1):
                 if ad.merchant == name:
-                    lines.append(f"• Posicion actual (venta): #{i}")
+                    lines.append(f"• Posición actual (venta): <b>#{i}</b>")
                     break
 
-    return "\n".join(lines)
+    return "\n".join(lines) + ai_meta(meta)
 
 
 def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
@@ -375,14 +385,20 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
         if not suspects:
             return "✅ No se detectaron merchants con comportamiento de bot"
 
-        lines = ["🤖 **POSIBLES BOTS DETECTADOS**", ""]
+        lines = ["🤖 <b>POSIBLES BOTS DETECTADOS</b>", ""]
         for m, c, v, avg in sorted(suspects, key=lambda x: x[1], reverse=True)[:10]:
             lines.append(
-                f"• `{m}`: {c} ads | {v:.1f} USDT total | {avg:.2f} USDT/ad")
+                f"• <code>@{m:<15}</code> Ops: <b>{c:>3}</b> | Vol: <b>{format_vol(v):>8}</b> | Avg: {avg:.1f}")
 
         lines.append(
-            "\n💡 *Bots tipicamente: alta frecuencia + bajo volumen por ad*")
-        return "\n".join(lines)
+            "\n💡 <i>Bots detectados por: muy alta frecuencia + bajo volumen histórico.</i>")
+
+        meta = {
+            "type": "merchant_bots_detected",
+            "count": len(suspects),
+            "top_suspects": [s[0] for s in suspects[:5]]
+        }
+        return "\n".join(lines) + ai_meta(meta)
 
     # ===========================================
     # CASO 5: Merchants grandes
@@ -409,16 +425,22 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
                     bigs.append((m, vol, count))
 
         if not bigs:
-            return "⚠️ No se encontraron merchants grandes en la ultima hora"
+            return "⚠️ No se encontraron merchants grandes en la última hora."
 
-        lines = ["🏦 **MERCHANTS DESTACADOS**", ""]
+        lines = ["🏦 <b>MERCHANTS DESTACADOS</b>", ""]
         for m, v, c in sorted(bigs, key=lambda x: x[1], reverse=True)[:10]:
-            lines.append(f"• `{m}`: Vol: {v:>8.2f} USDT | Ads: {c:>3}")
+            lines.append(
+                f"• <code>@{m:<12}</code>: Vol: <b>{format_vol(v):>8}</b> USDT | Ads: <b>{c:>3}</b>")
 
-        return "\n".join(lines)
+        meta = {
+            "type": "merchant_bigs",
+            "count": len(bigs),
+            "top_merchants": [b[0] for b in sorted(bigs, key=lambda x: x[1], reverse=True)[:5]]
+        }
+        return "\n".join(lines) + ai_meta(meta)
 
     # ===========================================
-    # CASO 6: Busqueda por nombre parcial
+    # CASO 6: Búsqueda por nombre parcial
     # ===========================================
     if token.startswith('search '):
         query = token[7:].strip()
@@ -430,11 +452,12 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
         if not matches:
             return f"⚠️ No hay merchants que contengan '{query}'"
 
-        lines = [f"🔍 **Merchants que contienen '{query}'**", ""]
+        lines = [f"🔍 <b>Merchants que contienen '{query}'</b>", ""]
         for m in matches:
-            lines.append(f"• `{m}`")
+            lines.append(f"• <code>@{m}</code>")
 
-        lines.append("\n💡 Usa `/merchant @nombre` para ver perfil completo")
+        lines.append(
+            f"\n💡 Usa <code>/merchant @nombre</code> para ver perfil completo")
         return "\n".join(lines)
 
     # ===========================================
@@ -457,7 +480,7 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
             WHERE pair = ? AND date = ?
             GROUP BY merchant
             HAVING muestras >= 4
-            ORDER BY (buy_avg - sell_avg) DESC
+            ORDER BY ABS(COALESCE(buy_avg,0) - COALESCE(sell_avg,0)) ASC
             LIMIT 10
         """, (pair, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
 
@@ -465,28 +488,33 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
         conn.close()
 
         if not rows:
-            return "⚠️ No hay suficientes datos de merchants estables hoy."
+            return f"⚠️ No hay suficientes datos de merchants estables para {pair} hoy."
 
-        lines = ["📊 **MERCHANTS ESTABLES (hoy)**", ""]
-        lines.append("` #  Merchant      Spread   Volumen  `")
-        lines.append("`---  ----------  -------  ---------`")
+        lines = [f"📊 <b>MERCHANTS ESTABLES ({pair})</b>", ""]
+        lines.append("<code> #  Merchant      Spread   Volumen </code>")
+        lines.append("<code>---  ----------  -------  ---------</code>")
 
         for idx, row in enumerate(rows, 1):
             merchant = row[0][:10]
-            spread = ((row[4] or 0) - (row[5] or 0)) / (row[5] or 1) * 100
+            spread = abs(((row[4] or 0) - (row[5] or 0)) / (row[5] or 1) * 100)
             volumen = row[3] or 0
 
             lines.append(
-                f"`{idx:2d}  @{merchant:<10}  {spread:>5.2f}%  {volumen:>8.0f}`"
+                f"<code>{idx:2d}  @{merchant:<10}  {spread:>5.2f}%  {format_vol(volumen):>9}</code>"
             )
 
-        lines.append("")
-        lines.append("💡 *Estables = spread consistente durante el día*")
+        lines.append("\n💡 <i>Estables = menor spread promedio hoy</i>")
 
-        return "\n".join(lines)
+        meta = {
+            "type": "merchant_estables",
+            "pair": pair,
+            "count": len(rows),
+            "best_spread": abs(((rows[0][4] or 0) - (rows[0][5] or 0)) / (rows[0][5] or 1) * 100) if rows else 0
+        }
+        return "\n".join(lines) + ai_meta(meta)
 
     # ===========================================
-    # CASO 9: Merchants rapidos
+    # CASO 9: Merchants rápidos
     # ===========================================
     if token == 'rapidos':
         conn = sqlite3.connect(DB_PATH)
@@ -498,12 +526,12 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
                 SUM(ad_count) as total_ops,
                 SUM(volume_usdt) as volumen_total,
                 COUNT(DISTINCT hour) as horas_activas,
-                AVG(ad_count) as ops_por_hora
+                AVG(ad_count / CAST(NULLIF(ad_count, 0) AS REAL)) as dummy
             FROM merchant_stats
             WHERE pair = ? AND date = ?
             GROUP BY merchant
             HAVING horas_activas >= 3
-            ORDER BY ops_por_hora DESC
+            ORDER BY (SUM(ad_count) / COUNT(DISTINCT hour)) DESC
             LIMIT 10
         """, (pair, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
 
@@ -511,57 +539,77 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
         conn.close()
 
         if not rows:
-            return "⚠️ No hay suficientes datos de merchants rápidos hoy."
+            return f"⚠️ No hay suficientes datos de merchants rápidos para {pair} hoy."
 
-        lines = ["⚡ **MERCHANTS RÁPIDOS (hoy)**", ""]
-        lines.append("` #  Merchant      Ops/h  Vol/hora `")
-        lines.append("`---  ----------  -----  ---------`")
+        lines = [f"⚡ <b>MERCHANTS RÁPIDOS ({pair})</b>", ""]
+        lines.append("<code> #  Merchant      Ops/h   Vol/hora </code>")
+        lines.append("<code>---  ----------  -----   ---------</code>")
 
         for idx, row in enumerate(rows, 1):
             merchant = row[0][:10]
-            ops_por_hora = row[4] or 0
-            volumen_hora = (row[2] or 0) / (row[3] or 1)
+            total_ops = row[1] or 0
+            horas = row[3] or 1
+            ops_por_hora = total_ops / horas
+            volumen_hora = (row[2] or 0) / horas
 
             lines.append(
-                f"`{idx:2d}  @{merchant:<10}  {ops_por_hora:>4.0f}   {volumen_hora:>8.0f}`"
+                f"<code>{idx:2d}  @{merchant:<10}  {ops_por_hora:>5.1f}   {format_vol(volumen_hora):>9}</code>"
             )
 
-        lines.append("")
-        lines.append("💡 *Rápidos = alta frecuencia de operaciones por hora*")
+        lines.append(
+            "\n💡 <i>Rápidos = mayor frecuencia de operaciones/hora hoy</i>")
 
-        return "\n".join(lines)
+        meta = {
+            "type": "merchant_rapidos",
+            "pair": pair,
+            "count": len(rows)
+        }
+        return "\n".join(lines) + ai_meta(meta)
 
-    # ===========================================
-    # CASO 7: Perfil de merchant especifico (@nombre o nombre directo)
-    # ===========================================
-    if token.startswith('@'):
-        name = token[1:].strip()
+    # Si el token es puramente numérico o muy corto y no es comando, ignorar
+    if not token or token == 'top':
+        # Proceder al top global por defecto
+        pass
     else:
-        name = token.strip()
+        # Si llegamos aquí, es un perfil específico (@usuario o nombre) o un comando
+        valid_tokens = ('top', 'buy', 'sell', 'bots', 'grandes',
+                        'estables', 'rapidos', 'search')
 
-    if not name:
-        return (
-            "⚠️ Comando no reconocido.\n\n"
-            "**Comandos disponibles:**\n"
-            "• `/merchant` - Top 10 global\n"
-            "• `/merchant buy` - Top compradores\n"
-            "• `/merchant sell` - Top vendedores\n"
-            "• `/merchant bots` - Detectar bots\n"
-            "• `/merchant grandes` - Volumen destacado\n"
-            "• `/merchant estables` - Spread consistente\n"
-            "• `/merchant rapidos` - Alta frecuencia de operaciones\n"
-            "• `/merchant search <texto>` - Buscar merchants\n"
-            "• `/merchant @usuario` - Perfil de merchant"
-        )
+        is_command = False
+        if token in valid_tokens or token.startswith('search'):
+            is_command = True
+
+        if is_command:
+            # Si era un comando pero no devolvió nada arriba, es que hubo un fallo lógico
+            # o el usuario escribió /merchant search sin nada más.
+            if token.startswith('search') and len(token) <= 7:
+                return "⚠️ Uso: <code>/merchant search &lt;texto&gt;</code>"
+            # No retornamos aquí, dejamos que intente buscar perfil si no es comando EXACTO
+        else:
+            # ES UN PERFIL
+            if token.startswith('@'):
+                name = token[1:].strip()
+            else:
+                name = token.strip()
+
+            if not name:
+                return (
+                    "⚠️ <b>Perfil no especificado.</b>\n\n"
+                    "<b>Opciones:</b>\n"
+                    "• <code>/merchant @usuario</code> - Ver perfil\n"
+                    "• <code>/merchant search &lt;nombre&gt;</code> - Buscar\n"
+                    "• <code>/merchant</code> - Top global"
+                )
 
     stats = _fetch_merchant_stats(name, pair)
 
     if not stats:
-        # Fallback a la version de RAM si es muy reciente y no hay stats en BD hoy
+        # Fallback a la versión de RAM
         ram_profile = _build_merchant_profile(name, pair)
-        if "sin actividad" not in ram_profile.lower() and "⚠️ ram" not in ram_profile.lower():
-            return ram_profile
-        return f"⚠️ Merchant `{name}` sin actividad en las últimas 24h.\n💡 Los datos se actualizan periódicamenta."
+        # Si el perfil de RAM dice "sin actividad", entonces el merchant realmente no existe o está inactivo
+        if "sin actividad" in ram_profile.lower():
+            return f"⚠️ <b>Merchant no encontrado:</b> <code>@{name}</code>\n<i>No se detectó actividad en las últimas 24h en {pair}.</i>"
+        return ram_profile
 
     # Formatear números
     vol_24h_str = f"{stats['vol_24h']:,.0f}".replace(',', '.')
@@ -576,33 +624,42 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
         vol_emoji = "🐟"  # Pez
 
     lines = [
-        f"👤 **PERFIL: @{stats['merchant']}** ({pair})",
-        f"• {vol_emoji} Volumen 24h: **{vol_24h_str} USD**",
-        f"• 📅 Volumen 7d: **{vol_7d_str} USD** ({stats['dias_activos']} días activos)",
-        f"• 📊 Spread promedio: **{stats['spread_pct']:.2f}%**",
-        f"• 🔄 Operaciones 24h: **{stats['ops_24h']}**",
-        f"• ⏰ Horario pico: **{stats['hora_pico']}**",
-        f"• 🛡️ Confiabilidad: **{stats['confiabilidad']}**",
+        f"👤 <b>PERFIL: @{stats['merchant']}</b> ({pair})",
+        f"• {vol_emoji} Volumen 24h: <b>{vol_24h_str} USD</b>",
+        f"• 📅 Volumen 7d: <b>{vol_7d_str} USD</b> ({stats['dias_activos']} días activos)",
+        f"• 📊 Spread promedio: <b>{stats['spread_pct']:.2f}%</b>",
+        f"• 🔄 Operaciones 24h: <b>{stats['ops_24h']}</b>",
+        f"• ⏰ Horario pico: <b>{stats['hora_pico']}</b>",
+        f"• 🛡️ Confiabilidad: <b>{stats['confiabilidad']}</b>",
         ""
     ]
 
     # Mostrar precios si están disponibles
     if stats['precio_compra'] and stats['precio_compra'] > 0:
         lines.append(
-            f"• 💰 Precio compra típico: **{stats['precio_compra']:.2f}**")
+            f"• 💰 Precio compra típico: <b>{format_num(stats['precio_compra'], 2)}</b>")
     if stats['precio_venta'] and stats['precio_venta'] > 0:
         lines.append(
-            f"• 💸 Precio venta típico: **{stats['precio_venta']:.2f}**")
+            f"• 💸 Precio venta típico: <b>{format_num(stats['precio_venta'], 2)}</b>")
 
     # Añadir interpretación
     lines.append("")
     if stats['confiabilidad'] == "🟢 ALTA":
         lines.append(
-            "✅ **Merchant confiable** - Ideal para operaciones recurrentes")
+            "✅ <b>Merchant confiable</b> - Ideal para operaciones recurrentes")
     elif stats['confiabilidad'] == "🟡 MEDIA":
         lines.append(
-            "⚠️ **Merchant moderado** - Verificar disponibilidad actual")
+            "⚠️ <b>Merchant moderado</b> - Verificar disponibilidad actual")
     else:
-        lines.append("🔍 **Merchant nuevo o esporádico** - Operar con cautela")
+        lines.append(
+            "🔍 <b>Merchant nuevo o esporádico</b> - Operar con cautela")
 
-    return "\n".join(lines)
+    meta = {
+        "type": "merchant_profile_stats",
+        "merchant": stats['merchant'],
+        "vol_24h": stats['vol_24h'],
+        "spread_pct": stats['spread_pct'],
+        "confiabilidad": stats['confiabilidad']
+    }
+
+    return "\n".join(lines) + ai_meta(meta)

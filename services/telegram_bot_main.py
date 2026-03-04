@@ -26,6 +26,7 @@ except Exception:
 
 from datetime import datetime
 from core import pipeline, notifier, db, scheduler
+from core.processor import ai_meta
 import asyncio
 from services.analytics.spread import handle_spread
 from services.analytics.merchant import handle_merchant
@@ -57,41 +58,87 @@ logging.getLogger("telegram").setLevel(logging.DEBUG)
 async def cmd_start(update, context):
     """Comando /start — información del bot."""
     texto = (
-        "👋 *Bienvenidos a FASTMONEY*\n\n"
-        "Comandos disponibles:\n"
-        "/TASA — Resumen de tasas actuales\n"
-        "/COP — Mercado USDT-COP\n"
-        "/VES — Mercado USDT-VES\n"
-        "/ARBITRAJE — Análisis de oportunidades\n"
-        "/spread — Análisis de spread del mercado\n"
-        "/merchant — Análisis de merchants\n"
-        "/volatilidad — Análisis de volatilidad\n"
-        "/BUCKETS — Buckets agregados recientes\n"
-        "/auto_on — Activar envíos automáticos cada 60 min\n"
-        "/auto_off — Desactivar envíos automáticos"
+        "👋 <b>Bienvenidos a FASTMONEY Systems</b>\n\n"
+        "Este bot proporciona analítica avanzada del mercado P2P (Binance) en tiempo real.\n\n"
+        "📖 <b>Primeros pasos:</b>\n"
+        "• Usa <code>/TASA</code> para ver los precios oficiales configurados.\n"
+        "• Usa <code>/help</code> para ver la documentación completa de comandos y metodología.\n\n"
+        "🚀 <i>Desarrollado para traders profesionales y agentes de IA.</i>"
     )
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text=texto,
-        parse_mode=ParseMode.MARKDOWN
+        parse_mode=ParseMode.HTML
+    )
+
+
+async def cmd_help(update, context):
+    """Comando /help — Documentación detallada."""
+    texto = (
+        "📚 <b>CENTRO DE AYUDA - FASTMONEY BOT</b>\n\n"
+        "🛠 <b>COMANDOS DE MERCADO</b>\n"
+        "• <code>/TASA</code>: Muestra tasas oficiales (Zelle, VES, COP, Efectivo).\n"
+        "• <code>/COP</code> / <code>/VES</code>: Resumen rápido del par fiat.\n"
+        "• <code>/ARBITRAJE</code>: Análisis de rentabilidad entre fronteras.\n"
+        "• <code>/volatilidad</code>: Análisis de fluctuación y riesgo.\n\n"
+        "📉 <b>COMANDOS DE SPREAD</b>\n"
+        "• <code>/spread</code>: Media de los mejores 5 anuncios.\n"
+        "• <code>/spread N</code>: Ver spread exacto en la posición N.\n"
+        "• <code>/spread N-M</code>: Media en un rango de posiciones.\n"
+        "• <code>/spread 1%</code>: Busca la posición más cercana a un spread del 1%.\n"
+        "• <code>/spread N-M%</code>: Rango de posiciones con spread entre N y M%.\n"
+        "• <code>/spread &gt;1.2</code>: <b>Análisis de Viabilidad</b>. Analiza volumen y rotación histórica para un umbral de spread.\n\n"
+        "👤 <b>COMANDOS DE MERCHANT</b>\n"
+        "• <code>/merchant</code>: Top comerciantes (compra/venta).\n"
+        "• <code>/merchant Buy</code>: Top comerciantes lado compra.\n"
+        "• <code>/merchant Sell</code>: Top comerciantes lado venta.\n"
+        "• <code>/merchant @search texto</code>: Busca por nombre parcial.\n"
+        "• <code>/merchant @user</code>: Perfil detallado (24h/7d).\n"
+        "• <code>/merchant grandes</code>: Comerciantes con altos volúmenes.\n"
+        "• <code>/merchant estables</code>: Rankings por spread consistente.\n"
+        "• <code>/merchant rapidos</code>: Rankings por frecuencia/hora.\n"
+        "• <code>/merchant bots</code>: Detecta posibles bots.\n\n"
+        "🔬 <b>METODOLOGÍA</b>\n"
+        "Las tasas oficiales se calculan usando la <b>Mediana Profunda</b>. Esto nos aleja de la volatilidad y asegura que los precios sean ejecutables con liquidez masiva.\n\n"
+        "🤖 <b>IA READY</b>\n"
+        "Todos los mensajes contienen metadatos estructurados visibles para agentes de IA para automatización de arbitraje."
+    )
+    await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=texto,
+        parse_mode=ParseMode.HTML
     )
 
 
 async def cmd_tasa(update, context):
     """Comando /TASA — Envía tasas actuales."""
+    """Comando /TASA — Tasas oficiales."""
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando tasas...")
-    
     try:
-        data = pipeline.build_data_from_db(CONFIG)
-        if not data.get("tasas_remesas"):
+        data = None
+        source_note = ""
+
+        # Try from RAM first
+        data = pipeline.build_data_from_ram(CONFIG)
+        if data:
+            source_note = " (RAM)"
+        else:
+            # Fallback to DB
+            data = pipeline.build_data_from_db(CONFIG)
+            if data:
+                source_note = " (DB)"
+
+        if not data or not data.get("tasas_remesas"):
             await context.bot.send_message(chat_id=chat_id, text="⚠️ Sin datos disponibles")
             return
-        
-        msg = notifier.format_tasa(data)
+
+        txt = notifier.format_tasa(data)
+        if source_note:
+            txt += f"\n\n⚙️ <i>Fuente: {source_note}</i>"
+
         await context.bot.send_message(
             chat_id=chat_id,
-            text=msg,
+            text=txt,
             parse_mode=ParseMode.HTML
         )
     except Exception as e:
@@ -100,28 +147,40 @@ async def cmd_tasa(update, context):
 
 
 async def cmd_cop(update, context):
-    """Comando /COP — Mercado COP."""
+    """Comando /COP."""
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando COP...")
-    
     try:
-        data = pipeline.build_data_from_db(CONFIG)
-        msg = notifier.format_compact_market("COP", data)
-        await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML)
+        data = pipeline.build_data_from_ram(
+            CONFIG) or pipeline.build_data_from_db(CONFIG)
+        if not data:
+            await context.bot.send_message(chat_id=chat_id, text="⚠️ Sin datos disponibles")
+            return
+        txt = notifier.format_compact_market("COP", data)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=txt,
+            parse_mode=ParseMode.HTML
+        )
     except Exception as e:
         logger.exception(f"Error en /COP: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
 async def cmd_ves(update, context):
-    """Comando /VES — Mercado VES."""
+    """Comando /VES."""
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Consultando VES...")
-    
     try:
-        data = pipeline.build_data_from_db(CONFIG)
-        msg = notifier.format_compact_market("VES", data)
-        await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML)
+        data = pipeline.build_data_from_ram(
+            CONFIG) or pipeline.build_data_from_db(CONFIG)
+        if not data:
+            await context.bot.send_message(chat_id=chat_id, text="⚠️ Sin datos disponibles")
+            return
+        txt = notifier.format_compact_market("VES", data)
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text=txt,
+            parse_mode=ParseMode.HTML
+        )
     except Exception as e:
         logger.exception(f"Error en /VES: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
@@ -130,39 +189,43 @@ async def cmd_ves(update, context):
 async def cmd_arbitraje(update, context):
     """Comando /ARBITRAJE — Análisis de arbitraje."""
     chat_id = update.effective_chat.id
-    await context.bot.send_message(chat_id=chat_id, text="⏳ Analizando arbitraje...")
-    
     try:
-        data = pipeline.build_data_from_db(CONFIG)
+        data = pipeline.build_data_from_ram(
+            CONFIG) or pipeline.build_data_from_db(CONFIG)
         arb = data.get("arbitraje", {})
-        
-        lines = ["📊 *ARBITRAJE — Evaluación de rutas*"]
-        cop_ves = arb.get("cop_to_ves_pct")
-        ves_cop = arb.get("ves_to_cop_pct")
-        
-        if cop_ves is not None:
-            status = "✅ Rentable" if cop_ves > 0 else "❌ No rentable"
-            lines.append(f"• COP → VES: {cop_ves:.2f}% {status}")
-        if ves_cop is not None:
-            status = "✅ Rentable" if ves_cop > 0 else "❌ No rentable"
-            lines.append(f"• VES → COP: {ves_cop:.2f}% {status}")
-        
-        if cop_ves is None and ves_cop is None:
-            lines.append("⚠️ Datos insuficientes")
-        else:
-            best = None
-            if cop_ves is not None and ves_cop is not None:
-                best = "COP → VES" if cop_ves > ves_cop and cop_ves > 0 else ("VES → COP" if ves_cop > 0 else None)
-            elif cop_ves is not None and cop_ves > 0:
-                best = "COP → VES"
-            elif ves_cop is not None and ves_cop > 0:
-                best = "VES → COP"
-            
-            if best:
-                lines.append(f"\n🔔 *Mejor ruta: {best}*")
-        
-        msg = "\n".join(lines)
-        await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode=ParseMode.MARKDOWN)
+        remesas = data.get("tasas_remesas", {})
+
+        tasa_p2p = arb.get("tasa_p2p")
+        eff = arb.get("eficiencia_pct")
+        tasa_ref = remesas.get("cop_ves_5pct")
+
+        lines = ["✈️ <b>ARBITRAJE CROSS-BORDER (COP/VES)</b>", ""]
+
+        if tasa_p2p:
+            lines.append(
+                f"• Tasa Implícita P2P: <b>{tasa_p2p:.2f}</b> COP/VES")
+            if tasa_ref:
+                lines.append(
+                    f"• Tasa Referencial: <b>{tasa_ref:.2f}</b> COP/VES")
+                # Eficiencia: cuanto menos COP necesitemos, mejor para el remitente
+                diff_pct = (tasa_p2p / tasa_ref - 1) * 100
+                lines.append(f"• Diferencia: <b>{diff_pct:+.2f}%</b>")
+
+                if diff_pct < 0:
+                    lines.append(
+                        "\n✅ <b>Oportunidad:</b> El corredor P2P es más eficiente actualmente.")
+                else:
+                    lines.append(
+                        "\n⚠️ <b>Nota:</b> La tasa de remesa es más competitiva que el P2P.")
+
+        lines.append(
+            "\n💡 <i>La tasa implícita incluye un 0.16% de comisión por cada tramo (vía USDT).</i>")
+
+        await context.bot.send_message(
+            chat_id=chat_id,
+            text="\n".join(lines) + ai_meta(arb),
+            parse_mode=ParseMode.HTML
+        )
     except Exception as e:
         logger.exception(f"Error en /ARBITRAJE: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
@@ -177,7 +240,7 @@ async def cmd_auto_on(update, context):
             text="⚠️ Este comando solo está disponible para el administrador."
         )
         return
-    
+
     # Verificar si ya hay un job activo
     jobs = context.job_queue.get_jobs_by_name("auto_tasa")
     if jobs:
@@ -186,13 +249,13 @@ async def cmd_auto_on(update, context):
             text="✅ El modo automático ya está activo."
         )
         return
-    
+
     # Obtener intervalo (default 3600s = 1 hora)
     try:
         interval = int(context.args[0]) if context.args else 3600
     except (ValueError, IndexError):
         interval = 3600
-    
+
     # Job
     async def job_send_tasa(context):
         try:
@@ -209,10 +272,11 @@ async def cmd_auto_on(update, context):
                 )
             except Exception:
                 pass
-    
+
     # Registrar job
-    context.job_queue.run_repeating(job_send_tasa, interval=interval, first=5, name="auto_tasa")
-    
+    context.job_queue.run_repeating(
+        job_send_tasa, interval=interval, first=5, name="auto_tasa")
+
     minutes = max(1, int(interval / 60))
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -230,7 +294,7 @@ async def cmd_auto_off(update, context):
             text="⚠️ Solo el administrador puede usar este comando."
         )
         return
-    
+
     jobs = context.job_queue.get_jobs_by_name("auto_tasa")
     if not jobs:
         await context.bot.send_message(
@@ -238,10 +302,10 @@ async def cmd_auto_off(update, context):
             text="⚠️ No hay tareas automáticas activas."
         )
         return
-    
+
     for job in jobs:
         job.schedule_removal()
-    
+
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
         text="🛑 Envíos automáticos desactivados."
@@ -281,7 +345,8 @@ async def cmd_buckets(update, context):
             vol_s = f"{vol:.2f}" if isinstance(vol, (int, float)) else "N/D"
             sp_s = f"{sp:.2f}%" if isinstance(sp, (int, float)) else "N/D"
             vola_s = f"{vola:.4f}" if isinstance(vola, (int, float)) else "N/D"
-            lines.append(f"• {bs} — avg: {avg_s} vol: {vol_s} spread: {sp_s} volat: {vola_s}")
+            lines.append(
+                f"• {bs} — avg: {avg_s} vol: {vol_s} spread: {sp_s} volat: {vola_s}")
 
         msg = "\n".join(lines)
         await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode=ParseMode.HTML)
@@ -298,7 +363,8 @@ def main():
     """Inicia el bot Telegram. If telegram lib not available, block until stopped."""
     logger.info("Iniciando bot...")
     if not TELEGRAM_AVAILABLE:
-        logger.warning("python-telegram-bot no disponible. Bot deshabilitado; manteniendo proceso para worker.")
+        logger.warning(
+            "python-telegram-bot no disponible. Bot deshabilitado; manteniendo proceso para worker.")
         try:
             import time
             while True:
@@ -331,16 +397,19 @@ def main():
         except Exception:
             logger.exception("Error logging update")
 
-
     # Registrar handlers
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("TASA", cmd_tasa))
     app.add_handler(CommandHandler("COP", cmd_cop))
     app.add_handler(CommandHandler("VES", cmd_ves))
     app.add_handler(CommandHandler("ARBITRAJE", cmd_arbitraje))
-    app.add_handler(CommandHandler("spread", lambda u, c: _wrap_analytics(u, c, handle_spread)))
-    app.add_handler(CommandHandler("merchant", lambda u, c: _wrap_analytics(u, c, handle_merchant)))
-    app.add_handler(CommandHandler("volatilidad", lambda u, c: _wrap_analytics(u, c, handle_volatility)))
+    app.add_handler(CommandHandler("spread", lambda u,
+                    c: _wrap_analytics(u, c, handle_spread)))
+    app.add_handler(CommandHandler("merchant", lambda u,
+                    c: _wrap_analytics(u, c, handle_merchant)))
+    app.add_handler(CommandHandler("volatilidad", lambda u,
+                    c: _wrap_analytics(u, c, handle_volatility)))
     app.add_handler(CommandHandler("auto_on", cmd_auto_on))
     app.add_handler(CommandHandler("auto_off", cmd_auto_off))
     app.add_handler(CommandHandler("BUCKETS", cmd_buckets))
@@ -376,7 +445,7 @@ async def _wrap_analytics(update, context, func):
                 pair = first
                 args = args[1:]
         txt = func(args, pair)
-        await context.bot.send_message(chat_id=chat_id, text=txt)
+        await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode=ParseMode.HTML)
     except Exception as e:
         logger.exception(f"Error en analytics command: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")

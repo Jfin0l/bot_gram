@@ -2,6 +2,7 @@ import logging
 import pytz
 from datetime import datetime
 from core import pipeline, db
+from core.processor import format_num, format_vol, ai_meta
 from config import BOT_TOKEN, CHAT_ID, OWNER_ID, log
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
@@ -28,7 +29,7 @@ def format_tasa(data: dict) -> str:
     precios_cop_buy = data.get("COP", {}).get("promedio_buy_tasa")
 
     # Metodo Zelle: Ajustado a 5% de margen (Buy +5%, Sell -5%)
-    zelle_bs = precios_ves_sell * 0.95 if precios_ves_sell else None
+    zelle_bs = precios_ves_sell * 0.93 if precios_ves_sell else None
     bs_zelle = precios_ves_buy * 1.05 if precios_ves_buy else None
 
     # Metodo USD-COP: Manteniendo el 5% de margen solicitado
@@ -36,46 +37,65 @@ def format_tasa(data: dict) -> str:
     usd_cop_sell = precios_cop_buy * 1.05 if precios_cop_buy else None
 
     lines = []
-    lines.append("💱 FASTMONEY — TASAS ACTUALES")
+    lines.append("💎 <b>FASTMONEY — TASAS OFICIALES</b>")
     hora_colombia = datetime.now(tz_colombia)
-    lines.append(f"🕒 {hora_colombia.strftime('%Y-%m-%d %H:%M:%S')} (Colombia)")
+    lines.append(
+        f"🕒 <code>{hora_colombia.strftime('%Y-%m-%d %H:%M:%S')}</code> (Colombia)")
     lines.append("")
-    lines.append("🇨🇴 COP → 🇻🇪 VES")
-    lines.append(f"• {tasas.get('cop_ves_10pct'):.2f}" if tasas.get(
-        'cop_ves_10pct') else "• +10% → N/D")
+
+    lines.append("🇨🇴 <b>OPERACIONES COP → VES</b>")
+    lines.append(f"• Tasa Estándar: <b>{format_num(tasas.get('cop_ves_10pct'), 2)}</b>" if tasas.get(
+        'cop_ves_10pct') else "• Tasa Estándar → N/D")
+    #lines.append(f"• Tasa Preferencial (+5%): <b>{format_num(tasas.get('cop_ves_5pct'), 2)}</b>" if tasas.get(
+    #    'cop_ves_5pct') else "• +5% → N/D")
     lines.append("")
-    lines.append("🇻🇪 VES → 🇨🇴 COP")
-    lines.append(f"• {tasas.get('ves_cop_5pct'):.4f}" if tasas.get(
-        'ves_cop_5pct') else "• +5% → N/D")
+
+    lines.append("🇻🇪 <b>OPERACIONES VES → COP</b>")
+    lines.append(f"• Tasa Retorno: <b>{format_num(tasas.get('ves_cop_5pct'), 4)}</b>" if tasas.get(
+        'ves_cop_5pct') else "• Tasa Retorno → N/D")
     lines.append("")
+
+    lines.append("📱 <b>MÉTODOS DIGITALES</b>")
     if zelle_bs:
-        lines.append(f"• Zelle → Bs.: {zelle_bs:,.0f}")
+        lines.append(
+            f"• Compra Zelle (Cobra Bs): <b>{format_num(zelle_bs, 0)}</b>")
     else:
-        lines.append("• Zelle → Bs.: N/D")
+        lines.append("• Compra Zelle: N/D")
+
     if bs_zelle:
-        lines.append(f"• Bs. → Zelle: {bs_zelle:,.0f}")
+        lines.append(
+            f"• Venta Zelle (Paga Bs): <b>{format_num(bs_zelle, 0)}</b>")
     else:
-        lines.append("• Bs. → Zelle: N/D")
+        lines.append("• Venta Zelle: N/D")
     lines.append("")
+
+    lines.append("💵 <b>CAMBIO EFECTIVO</b>")
     if usd_cop_buy:
-        lines.append(f"• Compra USDCOP: {usd_cop_buy:,.0f}")
+        lines.append(f"• Compra USDCOP: <b>{format_num(usd_cop_buy, 0)}</b>")
     else:
         lines.append("• Compra USDCOP: N/D")
     if usd_cop_sell:
-        lines.append(f"• Venta USDCOP: {usd_cop_sell:,.0f}")
+        lines.append(f"• Venta USDCOP: <b>{format_num(usd_cop_sell, 0)}</b>")
     else:
         lines.append("• Venta USDCOP: N/D")
 
     lines.append("")
-    lines.append("AVISO IMPORTANTE: ")
-    lines.append("No garantizamos la exactitud de estos datos. Usted es el unico responsasble de las decisiones que tome basandose en esta informacion.")
+    lines.append("⚠️ <b>NOTAS DE MERCADO:</b>")
     lines.append(
-        "El administrador del canal no se hace responsable por perdidas o daños derivados del uso de esta informacion.")
+        "Nota: los datos aqui presentados son solo de referencia, para mayor informacion contacte a un operador.")
     lines.append("")
-    lines.append("atte. FastMoney.")
-    lines.append("")
+    lines.append("— <i>Atte. FastMoney Systems</i>")
 
-    return "\n".join(lines)
+    meta = {
+        "type": "official_rates",
+        "timestamp": hora_colombia.isoformat(),
+        "cop_ves_10": tasas.get('cop_ves_10pct'),
+        "ves_cop_5": tasas.get('ves_cop_5pct'),
+        "zelle_buy": zelle_bs,
+        "zelle_sell": bs_zelle
+    }
+
+    return "\n".join(lines) + ai_meta(meta)
 
 
 def format_compact_market(fiat: str, data: dict) -> str:
@@ -100,28 +120,38 @@ def format_compact_market(fiat: str, data: dict) -> str:
     if prom_buy is None or prom_sell is None:
         return f"{header}\n⚠️ Datos insuficientes."
 
-    lines = [header]
+    lines = [f"📊 <b>{header}</b>"]
     try:
-        lines.append(f"• Compra (avg): {prom_buy:,.2f}")
-        lines.append(f"• Venta  (avg): {prom_sell:,.2f}")
-        lines.append(f"• Spread aproximado: {(prom_buy/prom_sell-1)*100:.2f}%")
+        lines.append(f"• Compra (avg): <b>{format_num(prom_buy)}</b>")
+        lines.append(f"• Venta  (avg): <b>{format_num(prom_sell)}</b>")
+        lines.append(f"• Spread: <b>{(prom_buy/prom_sell-1)*100:.2f}%</b>")
     except Exception as e:
         logg.warning("Error calculando spread en format_compact_market: %s", e)
     lines.append("")
     if fiat == "COP":
-        lines.append("💱 COP→VES:")
-        lines.append(f"• +5%  → {t5:,.6f}" if t5 else "• +5%  → N/D")
-        lines.append(f"• +10% → {t10:,.6f}" if t10 else "• +10% → N/D")
+        lines.append("💱 <b>COP→VES Remesas:</b>")
+        lines.append(
+            f"• Tasa preferencial → <b>{format_num(t5, 2)}</b>" if t5 else "• → N/D")
+        lines.append(
+            f"• Tasa estándar → <b>{format_num(t10, 2)}</b>" if t10 else "• → N/D")
     else:
-        lines.append("💱 VES→COP:")
-        lines.append(f"• +5%  → {t5:,.6f}" if t5 else "• +5%  → N/D")
+        lines.append("💱 <b>VES→COP Remesas:</b>")
+        lines.append(
+            f"• Tasa retorno → <b>{format_num(t5, 4)}</b>" if t5 else "• → N/D")
 
     coef = data["analisis"].get(info_key, {}).get("coef_var")
     stability = "⚠️ Alta volatilidad" if coef and coef > 3 else "✅ Estable"
     lines.append("")
-    lines.append(f"🔎 Estabilidad: {stability}")
+    lines.append(f"🔎 <b>Estabilidad:</b> {stability} (CV: {coef:.2f})")
 
-    return "\n".join(lines)
+    meta = {
+        "type": "compact_market",
+        "fiat": fiat,
+        "avg_buy": prom_buy,
+        "avg_sell": prom_sell,
+        "stability": stability
+    }
+    return "\n".join(lines) + ai_meta(meta)
 
 
 def send_message(chat_id: str, text: str, parse_mode: str = "HTML", dry_run: bool = False):
