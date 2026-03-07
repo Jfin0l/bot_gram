@@ -79,6 +79,19 @@ def _ensure_db():
     )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_agg_pair_bucket ON aggregated_prices(pair, bucket_start)")
+    # events table (simple signals/anomalies)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_type TEXT NOT NULL,
+            pair TEXT,
+            timestamp TEXT NOT NULL,
+            severity INTEGER,
+            details TEXT
+        )
+        """
+    )
     cur.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp)")
 
     # Tabla de métricas históricas (para /spread dia, /volume, /depth)

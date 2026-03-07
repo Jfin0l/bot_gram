@@ -199,9 +199,9 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
     if token and any(c.isalpha() for c in token) and token not in ('buy', 'sell'):
         # Filtrar el snapshot actual por banco
         filtered_buys = [a for a in buys if token in (
-            a.raw.get('methods') or '').lower()]
+            a.payment_method or '').lower()]
         filtered_sells = [a for a in sells if token in (
-            a.raw.get('methods') or '').lower()]
+            a.payment_method or '').lower()]
 
         if not filtered_buys or not filtered_sells:
             return f"⚠️ No hay suficientes anuncios activos con el método: <b>{token}</b> en {pair}"
