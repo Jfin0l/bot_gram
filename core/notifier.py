@@ -46,7 +46,7 @@ def format_tasa(data: dict) -> str:
     lines.append("🇨🇴 <b>OPERACIONES COP → VES</b>")
     lines.append(f"• Tasa Estándar: <b>{format_num(tasas.get('cop_ves_10pct'), 2)}</b>" if tasas.get(
         'cop_ves_10pct') else "• Tasa Estándar → N/D")
-    #lines.append(f"• Tasa Preferencial (+5%): <b>{format_num(tasas.get('cop_ves_5pct'), 2)}</b>" if tasas.get(
+    # lines.append(f"• Tasa Preferencial (+5%): <b>{format_num(tasas.get('cop_ves_5pct'), 2)}</b>" if tasas.get(
     #    'cop_ves_5pct') else "• +5% → N/D")
     lines.append("")
 
@@ -69,7 +69,7 @@ def format_tasa(data: dict) -> str:
         lines.append("• Venta Zelle: N/D")
     lines.append("")
 
-    lines.append("💵 <b>CAMBIO EFECTIVO</b>")
+    lines.append("💵 <b>CAMBIO USD/COP</b>")
     if usd_cop_buy:
         lines.append(f"• Compra USDCOP: <b>{format_num(usd_cop_buy, 0)}</b>")
     else:

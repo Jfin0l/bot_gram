@@ -31,7 +31,10 @@ import asyncio
 from services.analytics.spread import handle_spread
 from services.analytics.merchant import handle_merchant
 from services.analytics.volatility import handle_volatility
+from services.analytics.usage import generate_cso_report
 from core.app_config import CONFIG
+from core.user_db import init_user_db
+from services.users.manager import rate_limited
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -110,8 +113,8 @@ async def cmd_help(update, context):
     )
 
 
+@rate_limited("/TASA")
 async def cmd_tasa(update, context):
-    """Comando /TASA — Envía tasas actuales."""
     """Comando /TASA — Tasas oficiales."""
     chat_id = update.effective_chat.id
     try:
@@ -146,6 +149,7 @@ async def cmd_tasa(update, context):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
+@rate_limited("/COP")
 async def cmd_cop(update, context):
     """Comando /COP."""
     chat_id = update.effective_chat.id
@@ -166,6 +170,7 @@ async def cmd_cop(update, context):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
+@rate_limited("/VES")
 async def cmd_ves(update, context):
     """Comando /VES."""
     chat_id = update.effective_chat.id
@@ -186,6 +191,7 @@ async def cmd_ves(update, context):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
+@rate_limited("/ARBITRAJE")
 async def cmd_arbitraje(update, context):
     """Comando /ARBITRAJE — Análisis de arbitraje."""
     chat_id = update.effective_chat.id
@@ -355,6 +361,59 @@ async def cmd_buckets(update, context):
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
 
 
+async def cmd_cso(update, context):
+    """Comando /cso — Reporte Estratégico P2P (Solo Admin)."""
+    if str(update.effective_chat.id) != str(OWNER_ID):
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="⚠️ Comando reservado para el CSO (Admin).")
+        return
+
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="⏳ Extrayendo métricas de uso y comportamiento...")
+    try:
+        report = generate_cso_report()
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=report,
+            parse_mode=ParseMode.HTML
+        )
+    except Exception as e:
+        logger.exception(f"Error en /cso: {e}")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"❌ Error generando reporte: {e}")
+
+
+async def cmd_ban(update, context):
+    """Comando /ban <user_id> [razon] — Agrega a un usuario a la lista negra (Solo Admin)."""
+    if str(update.effective_chat.id) != str(OWNER_ID):
+        return
+
+    if not context.args:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="ℹ️ Uso: /ban <user_id> [razón opcional]")
+        return
+
+    user_to_ban = context.args[0]
+    reason = " ".join(context.args[1:]) if len(
+        context.args) > 1 else "Abuso del bot"
+
+    from core.user_db import set_blacklist_status
+    set_blacklist_status(user_to_ban, True, reason)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"🚫 Usuario <b>{user_to_ban}</b> ha sido añadido a la lista negra.", parse_mode=ParseMode.HTML)
+
+
+async def cmd_unban(update, context):
+    """Comando /unban <user_id> — Remueve un usuario de la lista negra (Solo Admin)."""
+    if str(update.effective_chat.id) != str(OWNER_ID):
+        return
+
+    if not context.args:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="ℹ️ Uso: /unban <user_id>")
+        return
+
+    user_to_unban = context.args[0]
+
+    from core.user_db import set_blacklist_status
+    set_blacklist_status(user_to_unban, False)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Usuario <b>{user_to_unban}</b> ha sido removido de la lista negra.", parse_mode=ParseMode.HTML)
+
+
 # ==============================
 # MAIN
 # ==============================
@@ -362,6 +421,9 @@ async def cmd_buckets(update, context):
 def main():
     """Inicia el bot Telegram. If telegram lib not available, block until stopped."""
     logger.info("Iniciando bot...")
+
+    # Inicializa DB de usuarios
+    init_user_db()
     if not TELEGRAM_AVAILABLE:
         logger.warning(
             "python-telegram-bot no disponible. Bot deshabilitado; manteniendo proceso para worker.")
@@ -404,15 +466,15 @@ def main():
     app.add_handler(CommandHandler("COP", cmd_cop))
     app.add_handler(CommandHandler("VES", cmd_ves))
     app.add_handler(CommandHandler("ARBITRAJE", cmd_arbitraje))
-    app.add_handler(CommandHandler("spread", lambda u,
-                    c: _wrap_analytics(u, c, handle_spread)))
-    app.add_handler(CommandHandler("merchant", lambda u,
-                    c: _wrap_analytics(u, c, handle_merchant)))
-    app.add_handler(CommandHandler("volatilidad", lambda u,
-                    c: _wrap_analytics(u, c, handle_volatility)))
+    app.add_handler(CommandHandler("spread", cmd_spread))
+    app.add_handler(CommandHandler("merchant", cmd_merchant))
+    app.add_handler(CommandHandler("volatilidad", cmd_volatilidad))
     app.add_handler(CommandHandler("auto_on", cmd_auto_on))
     app.add_handler(CommandHandler("auto_off", cmd_auto_off))
     app.add_handler(CommandHandler("BUCKETS", cmd_buckets))
+    app.add_handler(CommandHandler("cso", cmd_cso))
+    app.add_handler(CommandHandler("ban", cmd_ban))
+    app.add_handler(CommandHandler("unban", cmd_unban))
     # Catch-all logger to help debugging when commands aren't triggering
     app.add_handler(MessageHandler(filters.ALL, _log_all_updates))
 
@@ -449,6 +511,21 @@ async def _wrap_analytics(update, context, func):
     except Exception as e:
         logger.exception(f"Error en analytics command: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
+
+
+@rate_limited("/spread")
+async def cmd_spread(update, context):
+    await _wrap_analytics(update, context, handle_spread)
+
+
+@rate_limited("/merchant")
+async def cmd_merchant(update, context):
+    await _wrap_analytics(update, context, handle_merchant)
+
+
+@rate_limited("/volatilidad")
+async def cmd_volatilidad(update, context):
+    await _wrap_analytics(update, context, handle_volatility)
 
 
 if __name__ == "__main__":
