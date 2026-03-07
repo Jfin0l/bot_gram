@@ -105,6 +105,16 @@ def generate_cso_report() -> str:
 
         monitor_profiles = set(user_times.keys()) - trader_profiles
 
+        # 7. Índice de Gestión de Escasez (Hoarding Logic)
+        # Usuarios que llegan a 11-14 consultas y se detienen (posible reserva)
+        hoarders_count = 0
+        for uid, times in user_times.items():
+            req_count = len(times)
+            if 11 <= req_count <= 14:
+                # Si hay gaps de > 2 horas entre las últimas consultas, es hoarding detectado
+                # O simplemente si terminó en ese rango y no volvió en el día
+                hoarders_count += 1
+
     except Exception as e:
         return f"⚠️ Error generando reporte CSO: {e}"
     finally:
@@ -128,6 +138,7 @@ def generate_cso_report() -> str:
         "",
         "<b>2. Análisis de Escasez y Poder</b>",
         f"• Power Users (Agotan 15 reqs): {power_users_count} usuarios",
+        f"• <b>Índice de Reserva (Hoarding): {hoarders_count} usuarios</b> (Cuidan sus últimas consultas)",
         f"• Cupo lleno (30 max): {dias_llenos} de los últimos 7 días",
     ]
     if dias_llenos > 0:

@@ -100,25 +100,29 @@ def format_tasa(data: dict) -> str:
 
 def format_compact_market(fiat: str, data: dict) -> str:
     fiat = fiat.upper()
-    if fiat not in ("COP", "VES"):
-        return "Par no soportado."
+
+    # Defaults and symbols
+    flag = "💰"
     if fiat == "COP":
-        prom_buy = data["COP"]["promedio_buy_tasa"]
-        prom_sell = data["COP"]["promedio_sell_tasa"]
-        t5 = data["tasas_remesas"].get("cop_ves_5pct")
-        t10 = data["tasas_remesas"].get("cop_ves_10pct")
-        header = "🇨🇴 USDT ↔ COP"
-        info_key = "cop_buy"
-    else:
-        prom_buy = data["VES"]["promedio_buy_tasa"]
-        prom_sell = data["VES"]["promedio_sell_tasa"]
-        t5 = data["tasas_remesas"].get("ves_cop_5pct")
-        t10 = None
-        header = "🇻🇪 USDT ↔ VES"
-        info_key = "ves_buy"
+        flag = "🇨🇴"
+    elif fiat == "VES":
+        flag = "🇻🇪"
+    elif fiat == "ARS":
+        flag = "🇦🇷"
+    elif fiat == "BRL":
+        flag = "🇧🇷"
+
+    header = f"{flag} USDT ↔ {fiat}"
+
+    market_data = data.get(fiat)
+    if not market_data:
+        return f"{header}\n⚠️ Sin datos para esta moneda."
+
+    prom_buy = market_data.get("promedio_buy_tasa")
+    prom_sell = market_data.get("promedio_sell_tasa")
 
     if prom_buy is None or prom_sell is None:
-        return f"{header}\n⚠️ Datos insuficientes."
+        return f"{header}\n⚠️ Datos insuficientes para {fiat}."
 
     lines = [f"📊 <b>{header}</b>"]
     try:
@@ -127,22 +131,31 @@ def format_compact_market(fiat: str, data: dict) -> str:
         lines.append(f"• Spread: <b>{(prom_buy/prom_sell-1)*100:.2f}%</b>")
     except Exception as e:
         logg.warning("Error calculando spread en format_compact_market: %s", e)
-    lines.append("")
-    if fiat == "COP":
+
+    # Remesas logic only if we have the pair COP/VES logic defined
+    tasas_remesas = data.get("tasas_remesas", {})
+    if fiat == "COP" and "cop_ves_5pct" in tasas_remesas:
+        lines.append("")
         lines.append("💱 <b>COP→VES Remesas:</b>")
+        t5 = tasas_remesas.get("cop_ves_5pct")
+        t10 = tasas_remesas.get("cop_ves_10pct")
         lines.append(
             f"• Tasa preferencial → <b>{format_num(t5, 2)}</b>" if t5 else "• → N/D")
         lines.append(
             f"• Tasa estándar → <b>{format_num(t10, 2)}</b>" if t10 else "• → N/D")
-    else:
+    elif fiat == "VES" and "ves_cop_5pct" in tasas_remesas:
+        lines.append("")
         lines.append("💱 <b>VES→COP Remesas:</b>")
+        t5 = tasas_remesas.get("ves_cop_5pct")
         lines.append(
             f"• Tasa retorno → <b>{format_num(t5, 4)}</b>" if t5 else "• → N/D")
 
-    coef = data["analisis"].get(info_key, {}).get("coef_var")
-    stability = "⚠️ Alta volatilidad" if coef and coef > 3 else "✅ Estable"
-    lines.append("")
-    lines.append(f"🔎 <b>Estabilidad:</b> {stability} (CV: {coef:.2f})")
+    info_key = f"{fiat.lower()}_buy"
+    coef = data.get("analisis", {}).get(info_key, {}).get("coef_var")
+    if coef is not None:
+        stability = "⚠️ Alta volatilidad" if coef > 3 else "✅ Estable"
+        lines.append("")
+        lines.append(f"🔎 <b>Estabilidad:</b> {stability} (CV: {coef:.2f})")
 
     meta = {
         "type": "compact_market",

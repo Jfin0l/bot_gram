@@ -52,6 +52,15 @@ def init_user_db():
         """
     )
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id TEXT PRIMARY KEY,
+            currency TEXT DEFAULT 'COP'
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -219,5 +228,30 @@ def check_daily_limits(user_id: str, max_users: int = 30, max_requests_per_user:
     except Exception as e:
         logger.error(f"Error verificando límites: {e}")
         return True, "ERROR_ALLOW"
+    finally:
+        conn.close()
+
+
+def get_user_currency(user_id: str) -> str:
+    """Retorna la moneda preferida del usuario, default 'COP'."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "SELECT currency FROM user_preferences WHERE user_id = ?", (str(user_id),))
+        row = cur.fetchone()
+        return row[0] if row else "COP"
+    finally:
+        conn.close()
+
+
+def set_user_currency(user_id: str, currency: str):
+    """Establece la moneda preferida del usuario."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT OR REPLACE INTO user_preferences (user_id, currency) VALUES (?, ?)", (str(user_id), currency.upper()))
+        conn.commit()
     finally:
         conn.close()

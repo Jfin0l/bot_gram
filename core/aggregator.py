@@ -10,35 +10,59 @@ from core import ram_window, db
 def _compute_bucket(snaps):
     prices = []
     volumes = []
+
+    # Metricas de spread por snapshot
+    snapshot_spreads = []
+    total_volumes = []
+
     for s in snaps:
+        # Ordenar ads por side
+        buys = sorted([ad for ad in s.ads if ad.side == 'buy'],
+                      key=lambda x: x.price, reverse=True)
+        sells = sorted([ad for ad in s.ads if ad.side ==
+                       'sell'], key=lambda x: x.price)
+
+        # Calcular spread promedio de los primeros 50 para este snapshot
+        n_limit = min(50, len(buys), len(sells))
+        if n_limit > 0:
+            sp_list = []
+            for i in range(n_limit):
+                if sells[i].price > 0:
+                    sp_list.append(
+                        ((buys[i].price - sells[i].price) / sells[i].price) * 100.0)
+            if sp_list:
+                snapshot_spreads.append(sum(sp_list) / len(sp_list))
+
+        total_vol_snap = sum(ad.quantity for ad in s.ads)
+        total_volumes.append(total_vol_snap)
+
         for ad in s.ads:
             prices.append(ad.price)
             volumes.append(ad.quantity)
+
     if not prices:
         return None
+
     avg_price = sum(prices) / len(prices)
     min_price = min(prices)
     max_price = max(prices)
     total_vol = sum(volumes)
-    # simple spread estimate: max_sell - min_buy across snapshots
-    buys = [p for p, s in ((ad.price, ad.side) for snap in snaps for ad in snap.ads) if s == 'buy']
-    sells = [p for p, s in ((ad.price, ad.side) for snap in snaps for ad in snap.ads) if s == 'sell']
-    spread = None
-    if buys and sells:
-        spread = (max(sells) - min(buys)) / max(0.000001, min(buys)) * 100.0
+
     # volatility: sample stddev
     import math
     mean = avg_price
     var = sum((p - mean) ** 2 for p in prices) / max(1, len(prices))
     volatility = math.sqrt(var)
+
     return {
         'avg_price': avg_price,
         'min_price': min_price,
         'max_price': max_price,
         'volume': total_vol,
-        'spread_pct': spread,
+        'spread_pct_bucket': sum(snapshot_spreads) / len(snapshot_spreads) if snapshot_spreads else 0,
         'volatility': volatility,
         'sample_count': len(prices),
+        'total_exposed_vol': sum(total_volumes) / len(total_volumes) if total_volumes else 0
     }
 
 
@@ -70,7 +94,8 @@ class Aggregator:
 
     def flush_once(self):
         now = datetime.now(timezone.utc)
-        bucket_start = now.replace(second=0, microsecond=0) - timedelta(seconds=now.minute % (self.bucket_seconds // 60) * 60)
+        bucket_start = now.replace(second=0, microsecond=0) - timedelta(
+            seconds=now.minute % (self.bucket_seconds // 60) * 60)
         # for each pair in RAM, aggregate last bucket_seconds
         with self.window.lock:
             for pair, dq in list(self.window.pair_index.items()):
@@ -88,10 +113,16 @@ class Aggregator:
                     min_price=metrics['min_price'],
                     max_price=metrics['max_price'],
                     volume=metrics['volume'],
-                    spread_pct=metrics['spread_pct'],
+                    spread_pct=metrics['spread_pct_bucket'],
                     volatility=metrics['volatility'],
                     sample_count=metrics['sample_count'],
                 )
+
+                # Guardar metricas financieras historicas
+                db.save_market_metric(
+                    pair, 'avg_spread_top50', metrics['spread_pct_bucket'])
+                db.save_market_metric(
+                    pair, 'total_volume', metrics['total_exposed_vol'])
 
 
 _GLOBAL_AGG: Aggregator = None

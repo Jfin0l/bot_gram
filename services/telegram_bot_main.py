@@ -11,12 +11,13 @@ except Exception:
     # dotenv optional in test environments
     pass
 try:
-    from telegram import Update, Bot
+    from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
     from telegram.ext import (
         ApplicationBuilder,
         CommandHandler,
         ContextTypes,
         MessageHandler,
+        CallbackQueryHandler,
         filters,
     )
     from telegram.constants import ParseMode
@@ -31,9 +32,11 @@ import asyncio
 from services.analytics.spread import handle_spread
 from services.analytics.merchant import handle_merchant
 from services.analytics.volatility import handle_volatility
+from services.analytics.volume import handle_volume
+from services.analytics.depth import handle_depth
 from services.analytics.usage import generate_cso_report
 from core.app_config import CONFIG
-from core.user_db import init_user_db
+from core.user_db import init_user_db, get_user_currency, set_user_currency
 from services.users.manager import rate_limited
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -83,7 +86,9 @@ async def cmd_help(update, context):
         "• <code>/TASA</code>: Muestra tasas oficiales (Zelle, VES, COP, Efectivo).\n"
         "• <code>/COP</code> / <code>/VES</code>: Resumen rápido del par fiat.\n"
         "• <code>/ARBITRAJE</code>: Análisis de rentabilidad entre fronteras.\n"
-        "• <code>/volatilidad</code>: Análisis de fluctuación y riesgo.\n\n"
+        "• <code>/volatilidad</code>: Análisis de fluctuación y riesgo.\n"
+        "• <code>/volume</code>: Análisis de liquidez y rotación.\n"
+        "• <code>/depth</code>: Profundidad de mercado y slippage.\n\n"
         "📉 <b>COMANDOS DE SPREAD</b>\n"
         "• <code>/spread</code>: Media de los mejores 5 anuncios.\n"
         "• <code>/spread N</code>: Ver spread exacto en la posición N.\n"
@@ -101,6 +106,8 @@ async def cmd_help(update, context):
         "• <code>/merchant estables</code>: Rankings por spread consistente.\n"
         "• <code>/merchant rapidos</code>: Rankings por frecuencia/hora.\n"
         "• <code>/merchant bots</code>: Detecta posibles bots.\n\n"
+        "⚙️ <b>CONFIGURACIÓN</b>\n"
+        "• <code>/config</code>: Cambia tu moneda base (COP, VES, ARS, BRL).\n\n"
         "🔬 <b>METODOLOGÍA</b>\n"
         "Las tasas oficiales se calculan usando la <b>Mediana Profunda</b>. Esto nos aleja de la volatilidad y asegura que los precios sean ejecutables con liquidez masiva.\n\n"
         "🤖 <b>IA READY</b>\n"
@@ -235,6 +242,48 @@ async def cmd_arbitraje(update, context):
     except Exception as e:
         logger.exception(f"Error en /ARBITRAJE: {e}")
         await context.bot.send_message(chat_id=chat_id, text=f"❌ Error: {e}")
+
+
+async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Muestra el menú de configuración de moneda."""
+    user_id = update.effective_user.id
+    current_curr = get_user_currency(user_id)
+
+    keyboard = [
+        [
+            InlineKeyboardButton("🇨🇴 COP", callback_data="curr_COP"),
+            InlineKeyboardButton("🇻🇪 VES", callback_data="curr_VES"),
+        ],
+        [
+            InlineKeyboardButton("🇦🇷 ARS", callback_data="curr_ARS"),
+            InlineKeyboardButton("🇧🇷 BRL", callback_data="curr_BRL"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await update.message.reply_text(
+        f"⚙️ <b>Configuración de Mercado</b>\n\n"
+        f"Moneda actual: <b>{current_curr}</b>\n"
+        f"Selecciona tu moneda base para los análisis:",
+        reply_markup=reply_markup,
+        parse_mode=ParseMode.HTML
+    )
+
+
+async def cb_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja el cambio de moneda desde el callback."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    new_curr = query.data.replace("curr_", "")
+
+    set_user_currency(user_id, new_curr)
+    await query.answer(f"Moneda cambiada a {new_curr}")
+
+    await query.edit_message_text(
+        text=f"✅ Base de mercado actualizada a: <b>{new_curr}</b>\n\n"
+        f"Ahora los comandos como /spread, /merchant y /volatilidad usarán {new_curr} por defecto.",
+        parse_mode=ParseMode.HTML
+    )
 
 
 async def cmd_auto_on(update, context):
@@ -469,12 +518,17 @@ def main():
     app.add_handler(CommandHandler("spread", cmd_spread))
     app.add_handler(CommandHandler("merchant", cmd_merchant))
     app.add_handler(CommandHandler("volatilidad", cmd_volatilidad))
+    app.add_handler(CommandHandler("volume", cmd_volume))
+    app.add_handler(CommandHandler("depth", cmd_depth))
     app.add_handler(CommandHandler("auto_on", cmd_auto_on))
     app.add_handler(CommandHandler("auto_off", cmd_auto_off))
     app.add_handler(CommandHandler("BUCKETS", cmd_buckets))
     app.add_handler(CommandHandler("cso", cmd_cso))
     app.add_handler(CommandHandler("ban", cmd_ban))
     app.add_handler(CommandHandler("unban", cmd_unban))
+    app.add_handler(CommandHandler("config", cmd_config))
+    app.add_handler(CommandHandler("moneda", cmd_config))
+    app.add_handler(CallbackQueryHandler(cb_currency, pattern="^curr_"))
     # Catch-all logger to help debugging when commands aren't triggering
     app.add_handler(MessageHandler(filters.ALL, _log_all_updates))
 
@@ -506,6 +560,14 @@ async def _wrap_analytics(update, context, func):
             if ('/' in first or '-' in first) and any(c.isalpha() for c in first):
                 pair = first
                 args = args[1:]
+            elif len(first) == 3:  # it's just a currency code like COP
+                pair = f"USDT-{first}"
+                args = args[1:]
+        else:
+            # Get user preferred currency
+            user_curr = get_user_currency(chat_id)
+            pair = f"USDT-{user_curr}"
+
         txt = func(args, pair)
         await context.bot.send_message(chat_id=chat_id, text=txt, parse_mode=ParseMode.HTML)
     except Exception as e:
@@ -526,6 +588,16 @@ async def cmd_merchant(update, context):
 @rate_limited("/volatilidad")
 async def cmd_volatilidad(update, context):
     await _wrap_analytics(update, context, handle_volatility)
+
+
+@rate_limited("/volume")
+async def cmd_volume(update, context):
+    await _wrap_analytics(update, context, handle_volume)
+
+
+@rate_limited("/depth")
+async def cmd_depth(update, context):
+    await _wrap_analytics(update, context, handle_depth)
 
 
 if __name__ == "__main__":

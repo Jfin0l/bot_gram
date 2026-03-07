@@ -8,6 +8,8 @@ Bot de Telegram para el análisis en tiempo real del mercado P2P de Binance, esp
 - **Mediana Profunda:** El cálculo de tasas ignora el top 10 volátil y usa las posiciones 40-60 de la lista de anuncios.
 - **Arbitraje Real:** Análisis de eficiencia (COP <-> VES) incluyendo comisiones reales de exchange (0.16%).
 - **Perfiles de Merchant:** Seguimiento de volumen, confiabilidad y detección de comportamiento automatizado (bots).
+- **Gestión Inteligente de Cupos:** Sistema de 30 asientos dinámicos (slots) con rotación automática y lista de espera.
+- **Analítica Estratégica (CSO):** Identificación de perfiles (Traders vs Monitores) e índice de gestión de escasez (Hoarding).
 - **IA Ready:** Mensajes con metadatos estructurados ocultos para integración fácil con agentes de IA.
 
 ## 🚀 Inicio Rápido
@@ -56,7 +58,20 @@ python3 -m scripts.run_bot
 ### Administración
 - `/auto_on [segundos]` — Activa envíos automáticos de tasas (default 1h).
 - `/auto_off` — Desactiva el modo automático.
+- `/cso` — **(Admin Only)** Reporte de estrategia semanal con métricas de retención, escasez y viabilidad.
+- `/ban <user_id> [razón]` — **(Admin Only)** Bloquea permanentemente a un usuario del sistema.
+- `/unban <user_id>` — **(Admin Only)** Remueve a un usuario de la lista negra.
 - `/help` — Muestra la ayuda interactiva.
+
+## 👥 Gestión de Usuarios y Límites (Alpha)
+
+Para garantizar la viabilidad técnica y comercial en fase Alpha, el bot cuenta con los siguientes controles:
+
+- **Cuota de Uso:** 15 solicitudes diarias por usuario.
+- **Asientos Dinámicos:** Capacidad máxima de 30 usuarios operando simultáneamente. 
+- **Rotación Automática:** Cuando un usuario agota sus 15 solicitudes, libera su asiento para el siguiente en la lista de espera.
+- **Lista de Espera (Waitlist):** Si los asientos están llenos, el bot te asignará una posición en la cola y te notificará proactivamente cuando un slot se libere.
+- **Blacklist:** Sistema de veto selectivo para prevenir el abuso del servicio.
 
 ## 🏗️ Arquitectura del Sistema
 

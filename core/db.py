@@ -56,8 +56,10 @@ def _ensure_db():
     # Indexes to speed common queries
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_pair ON snapshots(pair)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots(timestamp_utc)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_pair ON snapshots(pair)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON snapshots(timestamp_utc)")
     # aggregated prices table (10-minute buckets)
     cur.execute(
         """
@@ -75,21 +77,28 @@ def _ensure_db():
         )
         """
     )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_agg_pair_bucket ON aggregated_prices(pair, bucket_start)")
-    # events table (simple signals/anomalies)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agg_pair_bucket ON aggregated_prices(pair, bucket_start)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp)")
+
+    # Tabla de métricas históricas (para /spread dia, /volume, /depth)
     cur.execute(
         """
-        CREATE TABLE IF NOT EXISTS events (
+        CREATE TABLE IF NOT EXISTS market_metrics_history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            event_type TEXT NOT NULL,
-            pair TEXT,
+            pair TEXT NOT NULL,
+            metric_name TEXT NOT NULL,
+            value REAL NOT NULL,
             timestamp TEXT NOT NULL,
-            severity INTEGER,
             details TEXT
         )
         """
     )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_events_ts ON events(timestamp)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_metrics_name_ts ON market_metrics_history(metric_name, timestamp)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_metrics_pair ON market_metrics_history(pair)")
+
     conn.commit()
     conn.close()
 
@@ -153,6 +162,7 @@ def save_snapshot_summary(pair: str, summary: dict):
     conn.commit()
     conn.close()
 
+
 def init_merchant_stats_table():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
@@ -177,7 +187,8 @@ def fetch_latest_snapshots(limit: int = 10):
     _ensure_db()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT timestamp_utc, pair, raw_json FROM snapshots ORDER BY id DESC LIMIT ?", (limit,))
+    cur.execute(
+        "SELECT timestamp_utc, pair, raw_json FROM snapshots ORDER BY id DESC LIMIT ?", (limit,))
     rows = cur.fetchall()
     conn.close()
     results = []
@@ -198,7 +209,8 @@ def save_aggregated_price(pair: str, bucket_start: str, avg_price: float = None,
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO aggregated_prices (pair, bucket_start, avg_price, min_price, max_price, volume, spread_pct, volatility, sample_count) VALUES (?,?,?,?,?,?,?,?,?)",
-        (pair, bucket_start, avg_price, min_price, max_price, volume, spread_pct, volatility, sample_count),
+        (pair, bucket_start, avg_price, min_price, max_price,
+         volume, spread_pct, volatility, sample_count),
     )
     conn.commit()
     conn.close()
@@ -231,7 +243,8 @@ def save_event(event_type: str, pair: str, timestamp: str, details: dict = None,
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     payload = json.dumps(details or {}, ensure_ascii=False)
-    cur.execute("INSERT INTO events (event_type, pair, timestamp, severity, details) VALUES (?,?,?,?,?)", (event_type, pair, timestamp, severity, payload))
+    cur.execute("INSERT INTO events (event_type, pair, timestamp, severity, details) VALUES (?,?,?,?,?)",
+                (event_type, pair, timestamp, severity, payload))
     conn.commit()
     conn.close()
 
@@ -296,7 +309,8 @@ def get_latest_snapshot_for_pair(pair: str):
     _ensure_db()
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT timestamp_utc, raw_json FROM snapshots WHERE pair = ? ORDER BY id DESC LIMIT 1", (pair,))
+    cur.execute(
+        "SELECT timestamp_utc, raw_json FROM snapshots WHERE pair = ? ORDER BY id DESC LIMIT 1", (pair,))
     row = cur.fetchone()
     conn.close()
     if not row:
@@ -374,5 +388,39 @@ def fetch_latest_raw(exchange: str = None, fiat: str = None, trade_type: str = N
             parsed = json.loads(raw_json)
         except Exception:
             parsed = raw_json
-        results.append({"timestamp_utc": ts, "exchange": exch, "fiat": f, "trade_type": t, "raw": parsed})
+        results.append({"timestamp_utc": ts, "exchange": exch,
+                       "fiat": f, "trade_type": t, "raw": parsed})
     return results
+
+
+def save_market_metric(pair: str, metric_name: str, value: float, details: dict = None):
+    """Guarda una métrica de mercado histórica."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    det_json = json.dumps(details, ensure_ascii=False) if details else None
+    cur.execute(
+        "INSERT INTO market_metrics_history (pair, metric_name, value, timestamp, details) VALUES (?,?,?,?,?)",
+        (pair, metric_name, value, ts, det_json)
+    )
+    conn.commit()
+    conn.close()
+
+
+def fetch_metrics_history(pair: str, metric_name: str, since_hours: int = 24):
+    """Obtiene el historial de una métrica específica."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cutoff = datetime.now(timezone.utc).replace(microsecond=0)
+    import datetime as dt_mod
+    cutoff = (cutoff - dt_mod.timedelta(hours=since_hours)).isoformat()
+
+    cur.execute(
+        "SELECT timestamp, value, details FROM market_metrics_history WHERE pair = ? AND metric_name = ? AND timestamp >= ? ORDER BY timestamp ASC",
+        (pair, metric_name, cutoff)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [{"timestamp": r[0], "value": r[1], "details": json.loads(r[2]) if r[2] else None} for r in rows]
