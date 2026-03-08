@@ -17,7 +17,7 @@ _sched = None
 _window = None
 
 
-def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, interval: int = 120, min_rows: int = 100):
+def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, interval: int = 60, min_rows: int = 100):
     """
     Loop de ingesta: obtiene anuncios por par y exchange y los añade a RAM.
     """
@@ -33,7 +33,7 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
                 for pair in CONFIG.get('pares', []):
                     fiat = pair.split('-')[1]
                     try:
-                        buy_ads, sell_ads = ex_instance.get_ads(fiat=fiat)
+                        buy_ads, sell_ads = ex_instance.get_ads(fiat=fiat, min_ads=min_rows)
                         
                         # Combinar y normalizar etiquetas
                         ads = []
@@ -55,7 +55,7 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
             break
 
 
-def start_worker(fetch_interval: int = 300, snapshot_interval: int = 600, ingest_interval: int = 120, ingest_min_rows: int = 100):
+def start_worker(fetch_interval: int = 300, snapshot_interval: int = 600, ingest_interval: int = 60, ingest_min_rows: int = 100):
     """Start scheduler, RAM window, aggregator and ingest thread."""
     global _ingest_thread, _ingest_stop_event, _sched, _window
     if _sched is not None:

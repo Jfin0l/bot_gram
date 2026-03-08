@@ -4,7 +4,7 @@ from typing import List, Tuple, Dict, Any
 
 class ExchangeInterface(ABC):
     @abstractmethod
-    def get_ads(self, fiat: str, asset: str = "USDT") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    def get_ads(self, fiat: str, asset: str = "USDT", min_ads: int = 100) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
         """
         Debe retornar una tupla (buy_ads, sell_ads).
         Cada anuncio debe ser un diccionario con la estructura:
