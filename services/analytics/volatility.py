@@ -30,16 +30,16 @@ def _get_volatility_history(pair: str, hours: int = 6) -> List[dict]:
 
             # Calcular spread promedio del snapshot como proxy de volatilidad
             buys = sorted([ad for ad in snap.ads if ad.side ==
-                          'buy'], key=lambda x: x.price, reverse=True)
+                          'buy'], key=lambda x: x.price)
             sells = sorted([ad for ad in snap.ads if ad.side ==
-                           'sell'], key=lambda x: x.price)
+                           'sell'], key=lambda x: x.price, reverse=True)
 
             if buys and sells:
                 spreads = []
                 for i in range(min(10, len(buys), len(sells))):  # primeras 10
-                    if buys[i].price > 0:
-                        sp = ((sells[i].price - buys[i].price) /
-                              buys[i].price) * 100
+                    if sells[i].price > 0:
+                        sp = ((buys[i].price - sells[i].price) /
+                              sells[i].price) * 100
                         spreads.append(sp)
                 if spreads:
                     hourly_buckets[hour_key].append(mean(spreads))

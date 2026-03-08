@@ -29,22 +29,21 @@ def _ordered_lists(snapshot):
     buys = [ad for ad in snapshot.ads if ad.side == 'buy']
     sells = [ad for ad in snapshot.ads if ad.side == 'sell']
 
-    # Perspectiva Exchange: 
-    # BUYS: anuncios donde el merchant COMPRA USDT (mayor precio primero)
-    buys_sorted = sorted(buys, key=lambda a: a.price, reverse=True)
+    # BUY: Organizados desde el que menos paga hacia el que más paga (Ascendente)
+    buys_sorted = sorted(buys, key=lambda a: a.price)
 
-    # SELLS: anuncios donde el merchant VENDE USDT (menor precio primero)
-    sells_sorted = sorted(sells, key=lambda a: a.price)
+    # SELL: Organizados desde el que más cobra hacia el que menos cobra (Descendente)
+    sells_sorted = sorted(sells, key=lambda a: a.price, reverse=True)
 
     return buys_sorted, sells_sorted
 
 
 def _spread_from_pair(buy, sell) -> Optional[float]:
     """Calcula spread % entre un comprador y un vendedor específicos.
-    Fórmula: ((P_Venta - P_Compra) / P_Compra) * 100
+    Fórmula: ((P_Compra - P_Venta) / P_Venta) * 100
     """
     try:
-        return ((sell.price - buy.price) / buy.price) * 100
+        return ((buy.price - sell.price) / sell.price) * 100
     except Exception:
         return None
 
