@@ -128,7 +128,8 @@ def format_compact_market(fiat: str, data: dict) -> str:
     try:
         lines.append(f"• Compra (avg): <b>{format_num(prom_buy)}</b>")
         lines.append(f"• Venta  (avg): <b>{format_num(prom_sell)}</b>")
-        lines.append(f"• Spread: <b>{(prom_buy/prom_sell-1)*100:.2f}%</b>")
+        # Spread: (Venta - Compra) / Compra
+        lines.append(f"• Spread: <b>{(prom_sell/prom_buy-1)*100:.2f}%</b>")
     except Exception as e:
         logg.warning("Error calculando spread en format_compact_market: %s", e)
 

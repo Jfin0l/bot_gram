@@ -18,41 +18,39 @@ _window = None
 
 
 def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, interval: int = 120, min_rows: int = 100):
-    """Simple ingest loop: fetch ads per pair and append to RAM every `interval` seconds.
-    Stops when `stop_event` is set.
     """
+    Loop de ingesta: obtiene anuncios por par y exchange y los añade a RAM.
+    """
+    from exchanges.factory import ExchangeFactory
+    
     while not stop_event.wait(0):
         try:
-            for pair in CONFIG.get('pares', []):
-                fiat = pair.split('-')[1]
-                # allow more pages (10 ads per page) to reach ~min_rows target
-                buy_ads, sell_ads = binance_p2p.get_ads(
-                    fiat=fiat, min_rows=min_rows, max_pages=12)
-                ads = []
-                for a in buy_ads:
-                    ads.append({
-                        'price': a.get('price'),
-                        'quantity': a.get('quantity') or 0,
-                        'merchant_name': a.get('nick') or a.get('merchant'),
-                        'side': 'buy',
-                        'min_limit': a.get('min') or a.get('min_limit') or 0,
-                        'max_limit': a.get('max') or a.get('max_limit') or 0,
-                        'payment_method': a.get('payment_method') or ''
-                    })
-                for a in sell_ads:
-                    ads.append({
-                        'price': a.get('price'),
-                        'quantity': a.get('quantity') or 0,
-                        'merchant_name': a.get('nick') or a.get('merchant'),
-                        'side': 'sell',
-                        'min_limit': a.get('min') or a.get('min_limit') or 0,
-                        'max_limit': a.get('max') or a.get('max_limit') or 0,
-                        'payment_method': a.get('payment_method') or ''
-                    })
-                window.append_snapshot(pair, ads)
+            # Por ahora solo procesamos Binance, pero la estructura ya permite expansión
+            exchanges = ["binance"] 
+            for ex_name in exchanges:
+                ex_instance = ExchangeFactory.get_exchange(ex_name)
+                
+                for pair in CONFIG.get('pares', []):
+                    fiat = pair.split('-')[1]
+                    try:
+                        buy_ads, sell_ads = ex_instance.get_ads(fiat=fiat)
+                        
+                        # Combinar y normalizar etiquetas
+                        ads = []
+                        for a in buy_ads:
+                            a['side'] = 'buy' # asegurar normalización
+                            ads.append(a)
+                        for a in sell_ads:
+                            a['side'] = 'sell'
+                            ads.append(a)
+                            
+                        window.append_snapshot(pair, ads, exchange=ex_name)
+                    except Exception as e:
+                        logger.error(f"Error ingestando {pair} desde {ex_name}: {e}")
+                        
         except Exception as e:
             logger.exception("Error en ingest loop: %s", e)
-        # wait with early exit
+            
         if stop_event.wait(interval):
             break
 

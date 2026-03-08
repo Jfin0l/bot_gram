@@ -29,19 +29,22 @@ def _ordered_lists(snapshot):
     buys = [ad for ad in snapshot.ads if ad.side == 'buy']
     sells = [ad for ad in snapshot.ads if ad.side == 'sell']
 
-    # Compra: mayor precio primero (quien más paga)
-    buys_sorted = sorted(buys, key=lambda a: a.price)
+    # Perspectiva Exchange: 
+    # BUYS: anuncios donde el merchant COMPRA USDT (mayor precio primero)
+    buys_sorted = sorted(buys, key=lambda a: a.price, reverse=True)
 
-    # Venta: menor precio primero (quien vende más barato)
-    sells_sorted = sorted(sells, key=lambda a: a.price, reverse=True)
+    # SELLS: anuncios donde el merchant VENDE USDT (menor precio primero)
+    sells_sorted = sorted(sells, key=lambda a: a.price)
 
     return buys_sorted, sells_sorted
 
 
 def _spread_from_pair(buy, sell) -> Optional[float]:
-    """Calcula spread % entre un comprador y un vendedor específicos."""
+    """Calcula spread % entre un comprador y un vendedor específicos.
+    Fórmula: ((P_Venta - P_Compra) / P_Compra) * 100
+    """
     try:
-        return ((buy.price - sell.price) / sell.price) * 100
+        return ((sell.price - buy.price) / buy.price) * 100
     except Exception:
         return None
 
@@ -119,11 +122,10 @@ def _format_heat_map(pair: str, metrics: List[dict], period_name: str) -> str:
         # Simplistic: just extract hour or date
         ts = datetime.fromisoformat(m['timestamp'])
         if period_name == 'dia':
-            key = (ts.hour // 3) * 3
-            label = f"{key:02d}-{key+3:02d}"
+            label = ts.strftime("%H:00")
         else:  # semana
-            label = ts.strftime("%a")
-
+            label = ts.strftime("%a %d")
+        
         if label not in blocks:
             blocks[label] = []
         blocks[label].append(m['value'])
@@ -139,7 +141,7 @@ def _format_heat_map(pair: str, metrics: List[dict], period_name: str) -> str:
         else:
             emoji = "⬜️"
 
-        lines.append(f"• {label}h: {emoji} <b>{avg:.2f}%</b>")
+        lines.append(f"• {label}: {emoji} <b>{avg:.2f}%</b>")
 
     lines.append("\n💡 <i>Promedio del Top 50 de anuncios por bloque.</i>")
     return "\n".join(lines)

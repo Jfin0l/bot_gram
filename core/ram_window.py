@@ -38,6 +38,7 @@ class Ad:
 class Snapshot:
     timestamp: datetime
     pair: str
+    exchange: str = "binance"
     ads: List[Ad] = field(default_factory=list)
 
 
@@ -96,7 +97,7 @@ class RamWindow:
         self._compaction_interval = 60
         self._aggregator_thread: Optional[threading.Thread] = None
 
-    def append_snapshot(self, pair: str, ads: List[dict], timestamp: Optional[datetime] = None):
+    def append_snapshot(self, pair: str, ads: List[dict], timestamp: Optional[datetime] = None, **kwargs):
         ts = timestamp or datetime.now(timezone.utc)
         ad_objs = []
         for a in ads:
@@ -115,7 +116,7 @@ class RamWindow:
             except Exception:
                 continue
 
-        snap = Snapshot(timestamp=ts, pair=pair, ads=ad_objs)
+        snap = Snapshot(timestamp=ts, pair=pair, exchange=kwargs.get('exchange', 'binance'), ads=ad_objs)
 
         with self.lock:
             self.snapshots.append(snap)

@@ -62,14 +62,17 @@ logging.getLogger("telegram").setLevel(logging.DEBUG)
 # ==============================
 
 async def cmd_start(update, context):
-    """Comando /start — información del bot."""
+    """Comando /start — información del bot multimoneda y multi-exchange."""
     texto = (
-        "👋 <b>Bienvenidos a FASTMONEY Systems</b>\n\n"
-        "Este bot proporciona analítica avanzada del mercado P2P (Binance) en tiempo real.\n\n"
-        "📖 <b>Primeros pasos:</b>\n"
-        "• Usa <code>/TASA</code> para ver los precios oficiales configurados.\n"
-        "• Usa <code>/help</code> para ver la documentación completa de comandos y metodología.\n\n"
-        "🚀 <i>Desarrollado para traders profesionales y agentes de IA.</i>"
+        "👋 <b>Bienvenidos a FASTMONEY Systems v2.0</b>\n\n"
+        "Este bot es un centro de inteligencia para traders P2P profesionales. "
+        "Ahora soportamos analítica multi-exchange y multimoneda en tiempo real.\n\n"
+        "🚀 <b>Novedades:</b>\n"
+        "• 🏦 <b>Multi-Exchange:</b> Binance, Bybit y OKX integrados.\n"
+        "• 💱 <b>Multi-Fiat:</b> COP, VES, ARS, BRL.\n"
+        "• 🧠 <b>Smart Money:</b> Detección de volumen y rotación.\n\n"
+        "⚙️ Usa <code>/config</code> para personalizar tu mercado y moneda base.\n"
+        "📖 Usa <code>/help</code> para ver la documentación completa."
     )
     await context.bot.send_message(
         chat_id=update.effective_chat.id,
@@ -245,10 +248,49 @@ async def cmd_arbitraje(update, context):
 
 
 async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Muestra el menú de configuración de moneda."""
+    """Nivel 1: Menú de selección de Exchange."""
     user_id = update.effective_user.id
-    current_curr = get_user_currency(user_id)
+    from core.user_db import get_user_exchange, get_user_currency
+    curr_ex = get_user_exchange(user_id)
+    curr_fi = get_user_currency(user_id)
 
+    keyboard = [
+        [
+            InlineKeyboardButton(f"Binance {'✅' if curr_ex == 'binance' else ''}", callback_data="ex_binance"),
+            InlineKeyboardButton(f"Bybit {'⏳' if curr_ex == 'bybit' else ''}", callback_data="ex_bybit"),
+            InlineKeyboardButton(f"OKX {'⏳' if curr_ex == 'okx' else ''}", callback_data="ex_okx"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    msg = (
+        "⚙️ <b>CONFIGURACIÓN DE TERMINAL</b>\n\n"
+        f"🏦 Mercado actual: <b>{curr_ex.upper()}</b>\n"
+        f"💱 Moneda actual: <b>{curr_fi.upper()}</b>\n\n"
+        "Selecciona el <b>Exchange</b> que deseas configurar:"
+    )
+    
+    if update.message:
+        await update.message.reply_text(msg, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    else:
+        await update.callback_query.edit_message_text(msg, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+
+
+async def cb_exchange(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Maneja la selección de exchange y pasa al Nivel 2 (Moneda)."""
+    query = update.callback_query
+    user_id = update.effective_user.id
+    ex_name = query.data.replace("ex_", "")
+
+    if ex_name in ('bybit', 'okx'):
+        await query.answer("⚠️ Función disponible próximamente", show_alert=True)
+        return
+
+    from core.user_db import set_user_exchange
+    set_user_exchange(user_id, ex_name)
+    await query.answer(f"Mercado: {ex_name.upper()}")
+
+    # Nivel 2: Seleccionar Moneda
     keyboard = [
         [
             InlineKeyboardButton("🇨🇴 COP", callback_data="curr_COP"),
@@ -257,32 +299,38 @@ async def cmd_config(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("🇦🇷 ARS", callback_data="curr_ARS"),
             InlineKeyboardButton("🇧🇷 BRL", callback_data="curr_BRL"),
-        ]
+        ],
+        [InlineKeyboardButton("⬅️ Volver al Exchange", callback_data="config_main")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
-    await update.message.reply_text(
-        f"⚙️ <b>Configuración de Mercado</b>\n\n"
-        f"Moneda actual: <b>{current_curr}</b>\n"
-        f"Selecciona tu moneda base para los análisis:",
+    await query.edit_message_text(
+        text=f"🏦 Mercado: <b>{ex_name.upper()}</b>\n\n"
+             "Ahora selecciona la <b>Moneda Fiat</b> base:",
         reply_markup=reply_markup,
         parse_mode=ParseMode.HTML
     )
 
 
 async def cb_currency(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Maneja el cambio de moneda desde el callback."""
+    """Finaliza la configuración guardando la moneda."""
     query = update.callback_query
     user_id = update.effective_user.id
     new_curr = query.data.replace("curr_", "")
 
+    from core.user_db import set_user_currency, get_user_exchange
     set_user_currency(user_id, new_curr)
-    await query.answer(f"Moneda cambiada a {new_curr}")
+    curr_ex = get_user_exchange(user_id)
+    
+    await query.answer(f"Configuración guardada: {curr_ex.upper()} | {new_curr}")
 
     await query.edit_message_text(
-        text=f"✅ Base de mercado actualizada a: <b>{new_curr}</b>\n\n"
-        f"Ahora los comandos como /spread, /merchant y /volatilidad usarán {new_curr} por defecto.",
-        parse_mode=ParseMode.HTML
+        text=f"✅ <b>Terminal Configurada</b>\n\n"
+             f"🏦 Exchange: <b>{curr_ex.upper()}</b>\n"
+             f"💱 Moneda: <b>{new_curr}</b>\n\n"
+             "Los análisis automáticos ahora reflejarán estas preferencias.",
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⚙️ Re-configurar", callback_data="config_main")]])
     )
 
 
@@ -528,6 +576,8 @@ def main():
     app.add_handler(CommandHandler("unban", cmd_unban))
     app.add_handler(CommandHandler("config", cmd_config))
     app.add_handler(CommandHandler("moneda", cmd_config))
+    app.add_handler(CallbackQueryHandler(cmd_config, pattern="^config_main$"))
+    app.add_handler(CallbackQueryHandler(cb_exchange, pattern="^ex_"))
     app.add_handler(CallbackQueryHandler(cb_currency, pattern="^curr_"))
     # Catch-all logger to help debugging when commands aren't triggering
     app.add_handler(MessageHandler(filters.ALL, _log_all_updates))
@@ -556,11 +606,12 @@ async def _wrap_analytics(update, context, func):
         pair = 'USDT-COP'
         if args:
             first = args[0].upper()
-            # heuristic: must contain '/' or '-' and also include letters to be considered a pair
+            # Heurística: evitar tratar subcomandos como 'DIA' como códigos de moneda fiat
+            reserved = ('DIA', 'TOP', 'BUY', 'SELL', 'BOTS')
             if ('/' in first or '-' in first) and any(c.isalpha() for c in first):
                 pair = first
                 args = args[1:]
-            elif len(first) == 3:  # it's just a currency code like COP
+            elif len(first) == 3 and first not in reserved:  # it's just a currency code like COP
                 pair = f"USDT-{first}"
                 args = args[1:]
         else:

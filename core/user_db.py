@@ -56,7 +56,8 @@ def init_user_db():
         """
         CREATE TABLE IF NOT EXISTS user_preferences (
             user_id TEXT PRIMARY KEY,
-            currency TEXT DEFAULT 'COP'
+            currency TEXT DEFAULT 'COP',
+            exchange TEXT DEFAULT 'binance'
         )
         """
     )
@@ -251,7 +252,36 @@ def set_user_currency(user_id: str, currency: str):
     cur = conn.cursor()
     try:
         cur.execute(
-            "INSERT OR REPLACE INTO user_preferences (user_id, currency) VALUES (?, ?)", (str(user_id), currency.upper()))
+            "INSERT OR REPLACE INTO user_preferences (user_id, currency, exchange) VALUES (?, ?, (SELECT exchange FROM user_preferences WHERE user_id = ?))", 
+            (str(user_id), currency.upper(), str(user_id))
+        )
+        if cur.rowcount == 0: # Si no existe, insertar con defaults
+             cur.execute("INSERT INTO user_preferences (user_id, currency) VALUES (?, ?)", (str(user_id), currency.upper()))
+        conn.commit()
+    finally:
+        conn.close()
+
+def get_user_exchange(user_id: str) -> str:
+    """Retorna el exchange preferido del usuario, default 'binance'."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT exchange FROM user_preferences WHERE user_id = ?", (str(user_id),))
+        row = cur.fetchone()
+        return row[0] if row and row[0] else "binance"
+    finally:
+        conn.close()
+
+def set_user_exchange(user_id: str, exchange: str):
+    """Establece el exchange preferido del usuario."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            "INSERT INTO user_preferences (user_id, exchange) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET exchange=excluded.exchange",
+            (str(user_id), exchange.lower())
+        )
         conn.commit()
     finally:
         conn.close()
