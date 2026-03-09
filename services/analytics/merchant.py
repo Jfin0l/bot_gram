@@ -7,6 +7,7 @@ import sqlite3
 from core.ram_window import get_global
 from core.db import DB_PATH
 from core.processor import format_num, format_vol, ai_meta
+from core.detectors.merchant_intel import calculate_automation_score
 
 
 def _cutoff(seconds: int = 3600):
@@ -238,6 +239,18 @@ def _build_merchant_profile(name: str, pair: str) -> str:
     if count == 0:
         return f"⚠️ Merchant `{name}` sin actividad en la ultima hora"
 
+    # 1. Obtener Score de Automatización desde DB (Inteligencia de Comerciantes)
+    # Buscamos por nombre para obtener el ID primero
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT merchant_id FROM merchant_registry WHERE nickname = ? LIMIT 1", (name,))
+    row = cur.fetchone()
+    conn.close()
+    
+    m_id = row[0] if row else None
+    intel = calculate_automation_score(m_id) if m_id else {'score': 0, 'classification': 'N/D', 'metrics': {}}
+    
+    # 2. Cálculos base
     avg_price = mean(prices) if prices else 0
     price_std = pstdev(prices) if len(prices) > 1 else 0
     price_variation = (price_std / (avg_price or 1)) * 100
@@ -252,32 +265,37 @@ def _build_merchant_profile(name: str, pair: str) -> str:
         stability = "🔴 MUY VARIABLE"
 
     activity_score = min(100, int((count / 30) * 50 + min(50, vol / 20)))
-
-    unique_sides = set(sides)
-    if len(unique_sides) == 2:
-        role = "🔄 Compra y Vende"
-    elif 'buy' in unique_sides:
-        role = "⬆️ Solo Compra"
-    else:
-        role = "⬇️ Solo Vende"
-
     currency = "COP" if "COP" in pair else "VES"
+
+    # 3. Score visual
+    score = intel.get('score', 0)
+    classification = intel.get('classification', 'HUMANO')
+    
+    if classification == "BOT/ALGORITMO":
+        intel_emoji = "🤖"
+    elif classification == "ACTIVO":
+        intel_emoji = "⚡"
+    else:
+        intel_emoji = "👤"
+
     lines = [
-        "👤 <b>PERFIL DE MERCHANT</b>",
-        f"📛 Nombre: <code>{name}</code>",
-        f"🎭 Rol: {role}",
+        f"{intel_emoji} <b>INTELIGENCIA DE MERCHANT</b>",
+        f"• Nombre: <code>{name}</code>",
+        f"• ID: <code>{m_id or 'N/A'}</code>",
+        f"• Clasificación: <b>{classification}</b>",
+        f"• Automation Score: <b>{score}/100</b>",
+        "",
+        "📊 <b>Flujo Reciente (24h)</b>",
+        f"• Frecuencia: {intel['metrics'].get('changes_24h', 0)} cambios",
+        f"• Persistencia Top 3: {intel['metrics'].get('persistence_top3_pct', 0)}%",
         "",
         "📊 <b>Actividad (última hora)</b>",
-        f"• <b>Anuncios publicados (1h):</b> {count}",
+        f"• Anuncios publicados (1h): {count}",
         f"• Volumen total: <b>{format_vol(vol)} USDT</b>",
-        f"• Volumen promedio por ad: <b>{format_vol(vol / count) if count > 0 else 0} USDT</b>",
         "",
         "💰 <b>Precios</b>",
         f"• Precio promedio: <b>{format_num(avg_price)} {currency}</b>",
-        f"• Variación: {price_variation:.2f}%",
         f"• Estabilidad: {stability}",
-        "",
-        f"📈 <b>Score de actividad: {activity_score}/100</b>",
     ]
 
     meta = {
@@ -352,53 +370,38 @@ def handle_merchant(args: List[str], pair: str = 'USDT-COP') -> str:
     # CASO 4: Deteccion de bots
     # ===========================================
     if token == 'bots':
-        rw = get_global()
-        if not rw:
-            return "⚠️ RAM no inicializada"
-
-        cutoff = _cutoff(3600)
-        suspects = []
-
-        with rw.lock:
-            for m, dq in rw.merchant_index.items():
-                count = 0
-                vol = 0.0
-                prices = []
-                sides = set()
-
-                for ts, ad in dq:
-                    if ts < cutoff:
-                        continue
-                    count += 1
-                    vol += ad.quantity
-                    prices.append(ad.price)
-                    sides.add(ad.side)
-
-                if count >= 20:
-                    avg_vol_per_ad = vol / max(1, count)
-                    price_variety = len(set(prices)) / max(1, count)
-                    operates_both_sides = len(sides) == 2
-
-                    if (avg_vol_per_ad < 1.0 and price_variety < 0.3) or operates_both_sides:
-                        suspects.append((m, count, vol, avg_vol_per_ad))
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        
+        # Obtener los top bots segun score y actividad reciente
+        cur.execute(
+            """
+            SELECT nickname, automation_score, classification 
+            FROM merchant_registry 
+            WHERE automation_score > 60 OR classification = 'BOT/ALGORITMO'
+            ORDER BY automation_score DESC 
+            LIMIT 10
+            """
+        )
+        suspects = cur.fetchall()
+        conn.close()
 
         if not suspects:
-            return "✅ No se detectaron merchants con comportamiento de bot"
+            return "✅ No se han detectado merchants con comportamiento algorítmico significativo en el historial."
 
-        lines = ["🤖 <b>POSIBLES BOTS DETECTADOS</b>", ""]
-        for m, c, v, avg in sorted(suspects, key=lambda x: x[1], reverse=True)[:10]:
-            lines.append(
-                f"• <code>@{m:<15}</code> Ops: <b>{c:>3}</b> | Vol: <b>{format_vol(v):>8}</b> | Avg: {avg:.1f}")
+        lines = ["🤖 <b>ALGORITMOS Y BOTS DETECTADOS</b>", ""]
+        lines.append("<code> #  Merchant      Score   Tipo </code>")
+        lines.append("<code>---  ----------  ------  ---------</code>")
+        
+        for i, s in enumerate(suspects, 1):
+            name = (s['nickname'] or 'N/D')[:10]
+            score = s['automation_score']
+            cl = s['classification']
+            lines.append(f"<code>{i:2d}  @{name:<10}  {score:>5.1f}   {cl}</code>")
 
-        lines.append(
-            "\n💡 <i>Bots detectados por: muy alta frecuencia + bajo volumen histórico.</i>")
-
-        meta = {
-            "type": "merchant_bots_detected",
-            "count": len(suspects),
-            "top_suspects": [s[0] for s in suspects[:5]]
-        }
-        return "\n".join(lines) + ai_meta(meta)
+        lines.append("\n💡 <i>Detección basada en frecuencia de cambios, persistencia en Top y velocidad de relist (7 días).</i>")
+        return "\n".join(lines)
 
     # ===========================================
     # CASO 5: Merchants grandes

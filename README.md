@@ -1,104 +1,86 @@
-# FastMoney Bot P2P — Telegram Bot de Análisis P2P
+# FastMoney Bot P2P — Terminal de Inteligencia P2P v2.0
 
-Bot de Telegram para el análisis en tiempo real del mercado P2P de Binance, especializado en los pares **USDT-COP** y **USDT-VES**. Utiliza algoritmos de estabilidad (Mediana Profunda) para calcular tasas de cambio, spreads, arbitraje transfronterizo y perfiles de actividad de comerciantes.
+Terminal avanzada de análisis en tiempo real para el mercado P2P. Diseñada para traders profesionales y agentes de IA, con soporte multi-exchange y métricas de profundidad de mercado. Especializada en **USDT-COP**, **USDT-VES**, **USDT-ARS** y **USDT-BRL**.
 
-## ✨ Características Principales
+## ✨ Características Principales (v2.0)
 
-- **Pipeline Híbrido:** Usa datos de RAM (últimas 6h) para rapidez y SQLite para historial y promedios.
-- **Mediana Profunda:** El cálculo de tasas ignora el top 10 volátil y usa las posiciones 40-60 de la lista de anuncios.
-- **Arbitraje Real:** Análisis de eficiencia (COP <-> VES) incluyendo comisiones reales de exchange (0.16%).
-- **Perfiles de Merchant:** Seguimiento de volumen, confiabilidad y detección de comportamiento automatizado (bots).
-- **Gestión Inteligente de Cupos:** Sistema de 30 asientos dinámicos (slots) con rotación automática y lista de espera.
-- **Analítica Estratégica (CSO):** Identificación de perfiles (Traders vs Monitores) e índice de gestión de escasez (Hoarding).
-- **IA Ready:** Mensajes con metadatos estructurados ocultos para integración fácil con agentes de IA.
-
-## 🚀 Inicio Rápido
-
-### 1. Instalación
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-### 2. Configuración
-Copia el archivo de ejemplo y edita tus credenciales (`BOT_TOKEN`, `CHAT_ID`, `OWNER_ID`):
-```bash
-cp .env.example .env
-```
-
-### 3. Ejecución Completa
-El comando principal inicia tanto el worker de datos (Fetch + RAM) como el bot de Telegram:
-```bash
-python3 -m scripts.run_bot
-```
+- **Arquitectura Multi-Exchange (Factory Pattern):** Soporte nativo para Binance con infraestructura lista para Bybit y OKX.
+- **Captura Ultra-Rápida:** Ingesta de 100+ anuncios por lado (200+ por par) cada 60 segundos, optimizada para baja latencia.
+- **Mapas de Calor (Heatmaps):** Visualización histórica de spreads en bloques de 1 hora para detectar los mejores momentos de operativa.
+- **Análisis de Profundidad (Depth):** Simulación de slippage para órdenes desde $1k hasta $50k y detección de "muros de liquidez".
+- **Monitor de Volumen:** Seguimiento de rotación de capital y ratio Compra/Venta para identificar acumulación o liquidación.
+- **Pipeline Híbrido:** Datos en tiempo real desde **RAM Window** (últimas 6h) y persistencia histórica en **SQLite**.
+- **IA Ready:** Generación automática de metadatos estructurados (JSON) en etiquetas `<tg-spoiler>` para automatización.
 
 ## 🤖 Comandos Disponibles
 
-### Operaciones y Tasas
-- `/tasa` — Tasas oficiales basadas en Mediana Profunda (COP, VES, Zelle-Bs, USD-COP).
-- `/cop` — Mercado detallado USDT/COP (Mediana, Spread, Volatilidad).
-- `/ves` — Mercado detallado USDT/VES.
-- `/arbitraje` — Análisis cruzado de eficiencia entre COP y VES (Incluye 0.16% fee).
+### 🛠️ Configuración y Mercado
+- `/config` o `/moneda` — **NUEVO.** Menú interactivo de Selección de Mercado (Binance, Bybit, OKX) y Moneda Base (COP, VES, ARS, BRL).
+- `/tasa` — Tasas oficiales basadas en **Mediana Profunda** (ignora volatilidad extrema).
+- `/cop` / `/ves` — Resumen rápido del par fiat configurado.
+- `/arbitraje` — Análisis de eficiencia cross-border (COP <-> VES) incluyendo comisiones reales.
 
-### Análisis Avanzado (`/spread` y `/merchant`)
-- `/spread` — Resumen de competitividad del mercado.
-- `/spread 5` — Spread en una posición específica.
-- `/spread 10-20` — Análisis de rango de posiciones.
-- `/merchant` — Top comerciantes global.
-- `/merchant buy` / `/merchant sell` — Rankings por lado de operación.
-- `/merchant @usuario` — Perfil detallado (Volumen 24h/7d, Horarios, Confiabilidad).
-- `/merchant search <texto>` — Búsqueda parcial de comerciantes.
-- `/merchant estables` / `/merchant rapidos` — Filtros por consistencia o frecuencia.
-- `/merchant bots` — Identificación de sospechosos de trading automático.
+### 📉 Análisis de Spread
+- `/spread` — Promedio de las mejores 5 posiciones.
+- `/spread <banco>` — **NUEVO.** Filtrado por método de pago (ej: `/spread banesco`, `/spread bancolombia`).
+- `/spread dia` — **NUEVO.** Mapa de calor de las últimas 24 horas en bloques de 1h.
+- `/spread semana` — **NUEVO.** Análisis comparativo de spread por día de la semana.
+- `/spread N` / `/spread N-M` — Spread en posición exacta o rango de posiciones.
+- `/spread >X.X` — Análisis de viabilidad técnica para un umbral de rentabilidad.
 
-### Analytics de Volatilidad
-- `/volatilidad` — Historial de cambios de precio en las últimas 6 horas con bar charts.
+### 📊 Liquidez y Profundidad
+- `/volume` — **NUEVO.** Análisis de liquidez expuesta y ratio de rotación. Identifica quién domina el mercado.
+- `/depth` — **NUEVO.** Análisis de profundidad. ¿Cuánto se mueve el precio si compro/vendo $10,000?
 
-### Administración
-- `/auto_on [segundos]` — Activa envíos automáticos de tasas (default 1h).
-- `/auto_off` — Desactiva el modo automático.
-- `/cso` — **(Admin Only)** Reporte de estrategia semanal con métricas de retención, escasez y viabilidad.
-- `/ban <user_id> [razón]` — **(Admin Only)** Bloquea permanentemente a un usuario del sistema.
-- `/unban <user_id>` — **(Admin Only)** Remueve a un usuario de la lista negra.
-- `/help` — Muestra la ayuda interactiva.
+### 👤 Inteligencia de Comerciantes (`/merchant`)
+- `/merchant` — Top comerciantes por volumen y confiabilidad.
+- `/merchant @usuario` — Perfil forense detallado (Volumen 24h/7d, Horarios, Detección de Bots).
+- `/merchant bots` — Identificación de algoritmos de trading automático.
 
-## 👥 Gestión de Usuarios y Límites (Alpha)
-
-Para garantizar la viabilidad técnica y comercial en fase Alpha, el bot cuenta con los siguientes controles:
-
-- **Cuota de Uso:** 15 solicitudes diarias por usuario.
-- **Asientos Dinámicos:** Capacidad máxima de 30 usuarios operando simultáneamente. 
-- **Rotación Automática:** Cuando un usuario agota sus 15 solicitudes, libera su asiento para el siguiente en la lista de espera.
-- **Lista de Espera (Waitlist):** Si los asientos están llenos, el bot te asignará una posición en la cola y te notificará proactivamente cuando un slot se libere.
-- **Blacklist:** Sistema de veto selectivo para prevenir el abuso del servicio.
+### 📈 Volatilidad y Admin
+- `/volatilidad` — Historial de cambios de precio (6h) con interpretación de riesgo.
+- `/cso` — **(Admin)** Reporte estratégico de retención de usuarios y gestión de slots.
 
 ## 🏗️ Arquitectura del Sistema
 
 ```mermaid
 graph TD
-    B[Binance P2P API] --> A[adapters/binance_p2p.py]
-    A --> W[scripts/run_worker.py]
-    W --> RAM[core/ram_window.py - Ventana 6h]
-    W --> DB[core/db.py - SQLite]
-    RAM --> AGG[core/aggregator.py - Buckets 10min]
-    AGG --> DB
+    subgraph Exchanges
+        B[Binance P2P]
+        BY[Bybit P2P ⏳]
+        OK[OKX P2P ⏳]
+    end
+
+    FACT[exchanges/factory.py] --> B
+    FACT --> BY
+    FACT --> OK
+
+    W[scripts/run_worker.py] --> FACT
+    W --> RAM[core/ram_window.py - 100+ Ads/Snap]
+    W --> DB[core/db.py - SQLite History]
     
-    RAM -.-> BOT[services/telegram_bot_main.py]
-    DB -.-> BOT
-    BOT --> TG(Telegram Users)
+    RAM --> AGG[core/aggregator.py]
+    AGG --> METRICS[(market_metrics_history)]
+    
+    BOT[services/telegram_bot_main.py] --> RAM
+    BOT --> DB
+    BOT --> PREFS[(user_preferences)]
+    
+    TG(User Terminal) <--> BOT
 ```
 
-## 📂 Estructura de Archivos
+## 📂 Organización del Proyecto
 
-- `core/` - Motores de procesamiento, DB, scheduler y lógica de negocio.
-- `services/` - Handlers de Telegram y módulos de analítica avanzada.
-- `adapters/` - Interfaz directa con la API de Binance.
-- `scripts/` - Entrypoints para el bot y el worker.
+- `exchanges/` - Módulos individuales por mercado (Patrón Factory).
+- `core/` - Motores de RAM, Base de Datos, Pipeline y Agregador.
+- `services/analytics/` - Módulos especializados de análisis (Spread, Volume, Depth, Merchant).
+- `services/users/` - Gestión de límites, slots y comportamiento de usuario.
+- `adapters/` - Componentes legados de red (en migración a `exchanges/`).
 
 ## 🛠️ Notas Metodológicas
-- El sistema prioriza la **RAM** para comandos de alta frecuencia y la **DB** como respaldo y para análisis históricos.
-- Los metadatos de IA están ocultos tras etiquetas `<tg-spoiler>` para no interferir con la experiencia del usuario humano.
+- **Lógica de Spread:** Calculado como `((Compra - Venta) / Venta) * 100` desde la perspectiva del merchant.
+- **Paginación:** El bot realiza capturas de 100 anuncios por lado (5 páginas de 20 anuncios) para garantizar una muestra estadística válida.
+- **Slots Dinámicos:** El sistema gestiona 30 "asientos" de usuarios activos para proteger la integridad del servidor.
 
 ---
-*Atte. FastMoney Systems*
+*Desarrollado por FastMoney Systems — Inteligencia de Mercados P2P.*

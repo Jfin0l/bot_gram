@@ -20,6 +20,10 @@ try:
     from core.detectors.merchant import detect_merchant_activity
 except Exception:
     detect_merchant_activity = None
+try:
+    from core.detectors.merchant_intel import detect_merchant_intel
+except Exception:
+    detect_merchant_intel = None
 
 
 @dataclass
@@ -31,7 +35,7 @@ class Ad:
     min_limit: float
     max_limit: float
     payment_method: str
-    id_hint: Optional[str] = None
+    merchant_id: str = "N/A"
 
 
 @dataclass
@@ -110,7 +114,7 @@ class RamWindow:
                     min_limit=float(a.get('min_limit', a.get('min') or 0) or 0),
                     max_limit=float(a.get('max_limit', a.get('max') or 0) or 0),
                     payment_method=str(a.get('payment_method') or a.get('payMethods') or ''),
-                    id_hint=a.get('id') or a.get('advId')
+                    merchant_id=str(a.get('merchant_id', 'N/A'))
                 )
                 ad_objs.append(ad)
             except Exception:
@@ -151,6 +155,11 @@ class RamWindow:
                 try:
                     # optionally pass the latest snapshot for merchant detector
                     detect_merchant_activity(self, pair, latest_snapshot=snap)
+                except Exception:
+                    traceback.print_exc()
+            if detect_merchant_intel:
+                try:
+                    detect_merchant_intel(self, pair, snap)
                 except Exception:
                     traceback.print_exc()
         except Exception:

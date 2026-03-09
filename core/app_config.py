@@ -58,6 +58,14 @@ DETECTORS: Dict[str, Any] = {
         "activity_window_seconds": _env_int("DETECTOR_MERCHANT_WINDOW", 300),
         "debounce_seconds": _env_int("DETECTOR_MERCHANT_DEBOUNCE", 300),
     },
+    "merchant_intelligence": {
+        "enabled": _env_bool("MERCHANT_INTEL_ENABLED", True),
+        "weight_frequency": _env_float("MERCHANT_W_FREQ", 0.4),
+        "weight_persistence": _env_float("MERCHANT_W_PERSIST", 0.3),
+        "weight_relist": _env_float("MERCHANT_W_RELIST", 0.3),
+        "history_days": _env_int("MERCHANT_HISTORY_DAYS", 7),
+        "top_n_to_track": _env_int("MERCHANT_TRACK_TOP", 50),
+    }
 }
 
 

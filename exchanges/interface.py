@@ -12,6 +12,7 @@ class ExchangeInterface(ABC):
             'price': float,
             'quantity': float,
             'merchant_name': str,
+            'merchant_id': str,
             'min_limit': float,
             'max_limit': float,
             'payment_method': str,

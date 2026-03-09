@@ -72,6 +72,7 @@ class BinanceExchange(ExchangeInterface):
                     'price': float(adv["price"]),
                     'quantity': float(adv.get("tradableQuantity") or adv.get("surplusAmount") or 0),
                     'merchant_name': advertiser.get("nickName", advertiser.get("nick", "N/A")),
+                    'merchant_id': advertiser.get("userNo", "N/A"),
                     'min_limit': float(adv.get("minSingleTransAmount") or 0),
                     'max_limit': float(adv.get("dynamicMaxSingleTransAmount") or 0),
                     'payment_method': ", ".join([m.get("tradeMethodName", "") for m in adv.get("tradeMethods", [])]),

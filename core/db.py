@@ -112,6 +112,39 @@ def _ensure_db():
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_metrics_pair ON market_metrics_history(pair)")
 
+    # Tabla para historial de anuncios de comerciantes (Top 50)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS merchant_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            merchant_id TEXT NOT NULL,
+            merchant_name TEXT,
+            pair TEXT NOT NULL,
+            side TEXT NOT NULL,
+            price REAL NOT NULL,
+            position INTEGER,
+            volume REAL,
+            timestamp TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_merchant_id ON merchant_history(merchant_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_merchant_ts ON merchant_history(timestamp)")
+
+    # Tabla para perfiles persistentes y scores de automatización
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS merchant_registry (
+            merchant_id TEXT PRIMARY KEY,
+            nickname TEXT,
+            automation_score REAL DEFAULT 0,
+            classification TEXT DEFAULT 'HUMANO',
+            last_seen TEXT,
+            details TEXT
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
