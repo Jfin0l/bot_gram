@@ -1,41 +1,43 @@
-# FastMoney Bot P2P — Terminal de Inteligencia P2P v2.0
+# FastMoney Bot P2P — Terminal de Inteligencia P2P v2.1
 
 Terminal avanzada de análisis en tiempo real para el mercado P2P. Diseñada para traders profesionales y agentes de IA, con soporte multi-exchange y métricas de profundidad de mercado. Especializada en **USDT-COP**, **USDT-VES**, **USDT-ARS** y **USDT-BRL**.
 
-## ✨ Características Principales (v2.0)
+## ✨ Características Principales (v2.1)
 
 - **Arquitectura Multi-Exchange (Factory Pattern):** Soporte nativo para Binance con infraestructura lista para Bybit y OKX.
 - **Captura Ultra-Rápida:** Ingesta de 100+ anuncios por lado (200+ por par) cada 60 segundos, optimizada para baja latencia.
+- **Merchant Intelligence (v2.1):** Seguimiento persistente por ID único (`userNo`). Cálculo de **Automation Score (0-100)** basado en frecuencia de cambios, persistencia en Top y velocidad de relist.
+- **Muros de Liquidez (v2.1):** Identificación automática de soportes y resistencias (walls) en el Top 50 de anuncios.
 - **Mapas de Calor (Heatmaps):** Visualización histórica de spreads en bloques de 1 hora para detectar los mejores momentos de operativa.
-- **Análisis de Profundidad (Depth):** Simulación de slippage para órdenes desde $1k hasta $50k y detección de "muros de liquidez".
-- **Monitor de Volumen:** Seguimiento de rotación de capital y ratio Compra/Venta para identificar acumulación o liquidación.
+- **Análisis de Profundidad (Depth):** Simulación de slippage para órdenes desde $1k hasta $50k filtrado por banco.
+- **Monitor de Volumen & Dominancia:** Seguimiento de rotación de capital y **Market Share** por comerciante.
 - **Pipeline Híbrido:** Datos en tiempo real desde **RAM Window** (últimas 6h) y persistencia histórica en **SQLite**.
-- **IA Ready:** Generación automática de metadatos estructurados (JSON) en etiquetas `<tg-spoiler>` para automatización.
 
 ## 🤖 Comandos Disponibles
 
 ### 🛠️ Configuración y Mercado
-- `/config` o `/moneda` — **NUEVO.** Menú interactivo de Selección de Mercado (Binance, Bybit, OKX) y Moneda Base (COP, VES, ARS, BRL).
-- `/tasa` — Tasas oficiales basadas en **Mediana Profunda** (ignora volatilidad extrema).
-- `/cop` / `/ves` — Resumen rápido del par fiat configurado.
-- `/arbitraje` — Análisis de eficiencia cross-border (COP <-> VES) incluyendo comisiones reales.
+- `/config` — Menú interactivo de Selección de Mercado y Moneda Base (COP, VES, ARS, BRL).
+- `/tasa` — Tasas oficiales basadas en **Mediana Profunda**.
+- `/ves` / `/cop` — Resumen rápido del par fiat configurado.
 
 ### 📉 Análisis de Spread
-- `/spread` — Promedio de las mejores 5 posiciones.
-- `/spread <banco>` — **NUEVO.** Filtrado por método de pago (ej: `/spread banesco`, `/spread bancolombia`).
-- `/spread dia` — **NUEVO.** Mapa de calor de las últimas 24 horas en bloques de 1h.
-- `/spread semana` — **NUEVO.** Análisis comparativo de spread por día de la semana.
-- `/spread N` / `/spread N-M` — Spread en posición exacta o rango de posiciones.
+- `/spread` — Promedio de las mejores 5 posiciones del mercado actual.
+- `/spread dia` — Mapa de calor de las últimas 24 horas (bloques de 1h).
+- `/spread semana` — Análisis comparativo de spread por día de la semana.
+- `/spread <banco>` — Spread filtrado por método de pago (ej: `/spread banesco`, `/spread bancolombia`).
 - `/spread >X.X` — Análisis de viabilidad técnica para un umbral de rentabilidad.
 
 ### 📊 Liquidez y Profundidad
-- `/volume` — **NUEVO.** Análisis de liquidez expuesta y ratio de rotación. Identifica quién domina el mercado.
-- `/depth` — **NUEVO.** Análisis de profundidad. ¿Cuánto se mueve el precio si compro/vendo $10,000?
+- `/volume` — Análisis de liquidez expuesta, ratio de rotación y **Dominancia de Merchants**.
+- `/depth` — Simulación de slippage por montos ($1k a $50k).
+- `/depth muro` — **NUEVO.** Detalle de muros de liquidez (Posición, Volumen, Precio).
+- `/depth <banco>` — **NUEVO.** Profundidad y slippage filtrado por banco específico.
 
 ### 👤 Inteligencia de Comerciantes (`/merchant`)
-- `/merchant` — Top comerciantes por volumen y confiabilidad.
-- `/merchant @usuario` — Perfil forense detallado (Volumen 24h/7d, Horarios, Detección de Bots).
-- `/merchant bots` — Identificación de algoritmos de trading automático.
+- `/merchant @usuario` — Perfil forense con **Automation Score**, ID único de exchange y clasificación (Humano/Bot).
+- `/merchant bots` — Ranking histórico de algoritmos detectados por comportamiento anómalo.
+- `/merchant grandes` — Identifica a los "Market Makers" (comerciantes ballena).
+- `/merchant estables` — Rankings por spread consistente en el tiempo.
 
 ### 📈 Volatilidad y Admin
 - `/volatilidad` — Historial de cambios de precio (6h) con interpretación de riesgo.

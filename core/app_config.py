@@ -65,6 +65,13 @@ DETECTORS: Dict[str, Any] = {
         "weight_relist": _env_float("MERCHANT_W_RELIST", 0.3),
         "history_days": _env_int("MERCHANT_HISTORY_DAYS", 7),
         "top_n_to_track": _env_int("MERCHANT_TRACK_TOP", 50),
+    },
+    "depth": {
+        "enabled": _env_bool("DEPTH_WALL_ENABLED", True),
+        # Umbral en USDT para considerar un anuncio como "muro"
+        "wall_threshold_usdt": _env_float("DEPTH_WALL_MIN", 25000.0),
+        # Factor multiplicador sobre el promedio de volumen del top 10
+        "wall_multiplier": _env_float("DEPTH_WALL_MULT", 3.0),
     }
 }
 
