@@ -38,6 +38,7 @@ from services.analytics.usage import generate_cso_report
 from core.app_config import CONFIG
 from core.user_db import init_user_db, get_user_currency, set_user_currency
 from services.users.manager import rate_limited
+from services.users.autos import start_autos, stop_autos
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -108,7 +109,11 @@ async def cmd_help(update, context):
         "• <code>/merchant grandes</code>: Comerciantes ballena (alto volumen).\n"
         "• <code>/merchant estables</code>: Ranking por spread constante.\n\n"
         "⚙️ <b>CONFIGURACIÓN</b>\n"
-        "• <code>/config</code>: Selector interactivo de Mercado y Moneda."
+        "• <code>/config</code>: Selector interactivo de Mercado y Moneda.\n\n"
+        "⏰ <b>AUTOMATIZACIÓN (PREMIUM)</b>\n"
+        "• <code>/auto [cmd] [min]</code>: Programa alerta periódica.\n"
+        "• <code>/my_autos</code>: Gestiona tus alertas activas.\n"
+        "• <code>/stop_auto [ID]</code>: Detiene una alerta.\n\n"
         "🔬 <b>METODOLOGÍA</b>\n"
         "Las tasas oficiales se calculan usando la <b>Mediana Profunda</b>. Esto nos aleja de la volatilidad y asegura que los precios sean ejecutables con liquidez masiva.\n\n"
         "🤖 <b>IA READY</b>\n"
@@ -483,10 +488,9 @@ async def cmd_ban(update, context):
     if not context.args:
         await context.bot.send_message(chat_id=update.effective_chat.id, text="ℹ️ Uso: /ban <user_id> [razón opcional]")
         return
-
+    
     user_to_ban = context.args[0]
-    reason = " ".join(context.args[1:]) if len(
-        context.args) > 1 else "Abuso del bot"
+    reason = " ".join(context.args[1:]) if len(context.args) > 1 else "Abuso del bot"
 
     from core.user_db import set_blacklist_status
     set_blacklist_status(user_to_ban, True, reason)
@@ -503,10 +507,185 @@ async def cmd_unban(update, context):
         return
 
     user_to_unban = context.args[0]
-
     from core.user_db import set_blacklist_status
     set_blacklist_status(user_to_unban, False)
-    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Usuario <b>{user_to_unban}</b> ha sido removido de la lista negra.", parse_mode=ParseMode.HTML)
+    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Usuario <b>{user_to_unban}</b> ha sido desbloqueado.", parse_mode=ParseMode.HTML)
+
+
+async def cmd_tier(update, context):
+    """Comando /tier <user_id> <FREE|PRO|WHALE|ADMIN> — Cambia el plan de un usuario (Solo Admin)."""
+    if str(update.effective_chat.id) != str(OWNER_ID):
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_html("ℹ️ Uso: <code>/tier [user_id] [FREE|PRO|WHALE|ADMIN]</code>")
+        return
+
+    user_id = context.args[0]
+    new_tier = context.args[1].upper()
+
+    from core.app_config import AUTOMATION_MAX_TASKS
+    if new_tier not in AUTOMATION_MAX_TASKS:
+        await update.message.reply_text(f"❌ Tier inválido. Disponibles: {', '.join(AUTOMATION_MAX_TASKS.keys())}")
+        return
+
+    from core.user_db import set_user_tier
+    set_user_tier(user_id, new_tier)
+    
+    await update.message.reply_html(f"🌟 Usuario <b>{user_id}</b> actualizado al nivel <b>{new_tier}</b>.")
+    
+    try:
+        max_tasks = AUTOMATION_MAX_TASKS[new_tier]
+        await context.bot.send_message(
+            chat_id=int(user_id),
+            text=(f"🎉 <b>¡Tu cuenta ha sido actualizada!</b>\n\n"
+                  f"Ahora eres nivel <b>{new_tier}</b>.\n"
+                  f"• Límite de automatizaciones: <b>{max_tasks}</b>\n"
+                  f"• Acceso prioritario concedido."),
+            parse_mode=ParseMode.HTML
+        )
+    except:
+        pass
+@rate_limited("/auto")
+async def cmd_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Agenda una tarea automática: /auto [comando] [opciones] [intervalo_minutos]
+    Ejemplo: /auto spread ves 60
+    """
+    user_id = str(update.effective_user.id)
+    args = context.args
+    
+    if len(args) < 2:
+        await update.message.reply_html(
+            "<b>Uso correcto:</b> <code>/auto [comando] [opciones...] [minutos]</code>\n\n"
+            "Ejemplos:\n"
+            "• <code>/auto spread ves 60</code>\n"
+            "• <code>/auto volume 30</code>\n"
+            "• <code>/auto depth muro 45</code>\n\n"
+            "<i>Mínimo: 30 minutos.</i>"
+        )
+        return
+
+    try:
+        # Extraer minutos (último argumento)
+        try:
+            interval = int(args[-1])
+            cmd_args = args[:-1]
+        except ValueError:
+            await update.message.reply_text("❌ El intervalo debe ser un número entero (minutos).")
+            return
+
+        command = cmd_args[0].lower()
+        options = " ".join(cmd_args[1:])
+        
+        # Validar comando soportado
+        from services.users.autos import HANDLERS
+        if command not in HANDLERS:
+            await update.message.reply_html(f"❌ Comando no soportado. Disponibles: {', '.join(HANDLERS.keys())}")
+            return
+
+        # Validar intervalo mínimo
+        from core.app_config import AUTOMATION_MIN_MINUTES
+        if interval < AUTOMATION_MIN_MINUTES:
+            await update.message.reply_text(f"❌ El intervalo mínimo es de {AUTOMATION_MIN_MINUTES} minutos.")
+            return
+
+        # Validar límites según tier
+        from core import user_db, app_config
+        tier = user_db.get_user_tier(user_id)
+        current_tasks = user_db.get_user_tasks(user_id)
+        max_allowed = app_config.AUTOMATION_MAX_TASKS.get(tier, 1)
+
+        if len(current_tasks) >= max_allowed:
+            await update.message.reply_html(
+                f"⚠️ <b>Límite de automatización alcanzado</b>\n\n"
+                f"Tu plan <b>{tier}</b> permite un máximo de {max_allowed} tareas activas.\n"
+                f"Usa <code>/my_autos</code> para gestionar o contacta a soporte para un plan superior."
+            )
+            return
+
+        # Guardar en DB
+        task_id = user_db.add_scheduled_task(user_id, command, options, interval)
+        
+        # Agendar en memoria
+        from services.users.autos import add_auto_job
+        task_dict = {
+            'id': task_id,
+            'user_id': user_id,
+            'command': command,
+            'options': options,
+            'interval_minutes': interval
+        }
+        add_auto_job(context.bot, task_dict)
+
+        await update.message.reply_html(
+            f"✅ <b>Automatización creada con éxito (ID: #{task_id})</b>\n\n"
+            f"• Comando: <code>/{command} {options}</code>\n"
+            f"• Frecuencia: Cada {interval} minutos.\n"
+            f"• Próxima ejecución: En T+{interval} min."
+        )
+
+    except Exception as e:
+        logger.exception("Error en cmd_auto")
+        await update.message.reply_text(f"❌ Error interno: {e}")
+
+@rate_limited("/my_autos")
+async def cmd_my_autos(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lista las automatizaciones activas del usuario."""
+    user_id = str(update.effective_user.id)
+    from core import user_db
+    tasks = user_db.get_user_tasks(user_id)
+    
+    if not tasks:
+        await update.message.reply_html("🔍 No tienes automatizaciones activas. Usa <code>/auto</code> para crear una.")
+        return
+
+    lines = ["📋 <b>MIS AUTOMATIZACIONES</b>", ""]
+    for t in tasks:
+        last = t['last_run'][:16].replace('T', ' ') if t['last_run'] else "Nunca"
+        lines.append(
+            f"🆔 <b>#{t['id']}</b>: <code>/{t['command']} {t['options'] or ''}</code>\n"
+            f"• Intervalo: {t['interval_minutes']} min | Última vez: {last}\n"
+            f"• Acciones: /stop_auto_{t['id']}\n"
+        )
+    
+    await update.message.reply_html("\n".join(lines))
+
+@rate_limited("/stop_auto")
+async def cmd_stop_auto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Elimina una automatización: /stop_auto [ID] o /stop_auto_[ID]"""
+    user_id = str(update.effective_user.id)
+    args = context.args
+    
+    # Soporte para /stop_auto_123 (vía link de lista)
+    task_id_str = None
+    if not args and update.message.text:
+        parts = update.message.text.split('_')
+        if len(parts) >= 3: # /stop_auto_123 -> ['/stop', 'auto', '123']
+            task_id_str = parts[-1]
+    elif args:
+        task_id_str = args[0].replace('#', '')
+
+    if not task_id_str:
+        await update.message.reply_text("❌ Uso: /stop_auto [ID]")
+        return
+
+    try:
+        task_id = int(task_id_str)
+        from core import user_db
+        from services.users.autos import remove_auto_job
+        
+        if user_db.delete_task(task_id, user_id):
+            remove_auto_job(task_id)
+            await update.message.reply_html(f"✅ Automatización <b>#{task_id}</b> eliminada.")
+        else:
+            await update.message.reply_text("❌ No se encontró la tarea o no tienes permisos sobre ella.")
+            
+    except ValueError:
+        await update.message.reply_text("❌ ID de tarea inválido.")
+    except Exception as e:
+        logger.exception("Error en cmd_stop_auto")
+        await update.message.reply_text(f"❌ Error: {e}")
 
 
 async def cmd_exc(update, context):
@@ -575,6 +754,9 @@ def main():
 
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Inicia sistema de automatizaciones
+    start_autos(app.bot)
+
     async def _log_all_updates(update, context):
         try:
             logger.debug("Received update: %s", update)
@@ -593,12 +775,16 @@ def main():
     app.add_handler(CommandHandler("volatilidad", cmd_volatilidad))
     app.add_handler(CommandHandler("volume", cmd_volume))
     app.add_handler(CommandHandler("depth", cmd_depth))
+    app.add_handler(CommandHandler("auto", cmd_auto))
+    app.add_handler(CommandHandler("my_autos", cmd_my_autos))
+    app.add_handler(CommandHandler("stop_auto", cmd_stop_auto))
     app.add_handler(CommandHandler("auto_on", cmd_auto_on))
     app.add_handler(CommandHandler("auto_off", cmd_auto_off))
     app.add_handler(CommandHandler("BUCKETS", cmd_buckets))
     app.add_handler(CommandHandler("cso", cmd_cso))
     app.add_handler(CommandHandler("ban", cmd_ban))
     app.add_handler(CommandHandler("unban", cmd_unban))
+    app.add_handler(CommandHandler("tier", cmd_tier))
     app.add_handler(CommandHandler("exc", cmd_exc))
     app.add_handler(CommandHandler("config", cmd_config))
     app.add_handler(CommandHandler("moneda", cmd_config))

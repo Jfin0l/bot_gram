@@ -35,6 +35,15 @@ WINDOW_SECONDS = _env_int("WINDOW_SECONDS", 6 * 3600)
 INGEST_MIN_ROWS = _env_int("INGEST_MIN_ROWS", 100)
 DEFAULT_TZ = os.getenv("DEFAULT_TZ", "America/Bogota")
 
+# Configuración del sistema de automatización /auto
+AUTOMATION_MIN_MINUTES = _env_int("AUTO_MIN_INTERVAL", 30)
+AUTOMATION_MAX_TASKS = {
+    "FREE": _env_int("AUTO_MAX_FREE", 1),
+    "PRO": _env_int("AUTO_MAX_PRO", 3),
+    "WHALE": _env_int("AUTO_MAX_WHALE", 10),
+    "ADMIN": 999
+}
+
 
 # Detector defaults. These are intentionally simple threshold-based configs.
 DETECTORS: Dict[str, Any] = {

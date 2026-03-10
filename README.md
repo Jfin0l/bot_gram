@@ -1,16 +1,18 @@
-# FastMoney Bot P2P — Terminal de Inteligencia P2P v2.1
+# FastMoney Bot P2P — Terminal de Inteligencia P2P v2.2
 
 Terminal avanzada de análisis en tiempo real para el mercado P2P. Diseñada para traders profesionales y agentes de IA, con soporte multi-exchange y métricas de profundidad de mercado. Especializada en **USDT-COP**, **USDT-VES**, **USDT-ARS** y **USDT-BRL**.
 
-## ✨ Características Principales (v2.1)
+## ✨ Características Principales (v2.2)
 
 - **Arquitectura Multi-Exchange (Factory Pattern):** Soporte nativo para Binance con infraestructura lista para Bybit y OKX.
 - **Captura Ultra-Rápida:** Ingesta de 100+ anuncios por lado (200+ por par) cada 60 segundos, optimizada para baja latencia.
 - **Merchant Intelligence (v2.1):** Seguimiento persistente por ID único (`userNo`). Cálculo de **Automation Score (0-100)** basado en frecuencia de cambios, persistencia en Top y velocidad de relist.
 - **Muros de Liquidez (v2.1):** Identificación automática de soportes y resistencias (walls) en el Top 50 de anuncios.
-- **Mapas de Calor (Heatmaps):** Visualización histórica de spreads en bloques de 1 hora para detectar los mejores momentos de operativa.
+- **Mapas de Calor (Heatmaps):** Visualización histórica de spreads en bloques de 1 hora convertidos a **zona horaria local**.
 - **Análisis de Profundidad (Depth):** Simulación de slippage para órdenes desde $1k hasta $50k filtrado por banco.
 - **Monitor de Volumen & Dominancia:** Seguimiento de rotación de capital y **Market Share** por comerciante.
+- **Sistema de Automatización (v2.2):** Programación de alertas recurrentes (`/auto`) con persistencia en DB y gestión de niveles de suscripción (SaaS Ready).
+- **Inteligencia Estratégica:** Detección de perfiles (Traders vs Monitores) e **Índice de Hoarding** (usuarios que reservan consultas por escasez).
 - **Pipeline Híbrido:** Datos en tiempo real desde **RAM Window** (últimas 6h) y persistencia histórica en **SQLite**.
 
 ## 🤖 Comandos Disponibles
@@ -39,9 +41,28 @@ Terminal avanzada de análisis en tiempo real para el mercado P2P. Diseñada par
 - `/merchant grandes` — Identifica a los "Market Makers" (comerciantes ballena).
 - `/merchant estables` — Rankings por spread consistente en el tiempo.
 
-### 📈 Volatilidad y Admin
+### 📈 Volatilidad y Otros
 - `/volatilidad` — Historial de cambios de precio (6h) con interpretación de riesgo.
-- `/cso` — **(Admin)** Reporte estratégico de retención de usuarios y gestión de slots.
+
+### ⏰ Automatización & Alertas (Premium v2.2)
+- `/auto [comando] [opciones] [minutos]` — Programa alertas automáticas periódicas.
+  - **Requisito:** Mínimo 30 minutos entre ejecuciones.
+  - **Ejemplo:** `/auto spread banesco 60` (Recibirás el spread de Banesco cada hora).
+  - **Ejemplo:** `/auto depth 30` (Alerta de profundidad general cada 30 min).
+- `/my_autos` — Lista todas tus tareas programadas con su ID único y última ejecución.
+- `/stop_auto [ID]` — Detiene permanentemente una automatización (ej: `/stop_auto 12`).
+
+### 👑 Gestión de Usuarios (Admin Only)
+- `/cso` — **Dashboard Estratégico.** Resumen de retención, escasez de cupos y diagnóstico de viabilidad comercial del bot.
+- `/tier [user_id] [PLAN]` — Cambia el nivel de privilegios y límites de un usuario.
+  - `FREE`: 1 Automatización activa.
+  - `PRO`: 3 Automatizaciones activas.
+  - `WHALE`: 10 Automatizaciones activas.
+  - `ADMIN`: 999 Automatizaciones (VIP).
+- `/exc [user_id] [dias|admin]` — Crea una excepción VIP temporal o permanente.
+  - `/exc 12345 3` (Acceso total por 3 días).
+  - `/exc 12345 admin` (Acceso total permanente).
+- `/ban` / `/unban` — Gestión de lista negra para prevenir abuso de recursos.
 
 ## 🏗️ Arquitectura del Sistema
 

@@ -57,10 +57,26 @@ def init_user_db():
         CREATE TABLE IF NOT EXISTS user_preferences (
             user_id TEXT PRIMARY KEY,
             currency TEXT DEFAULT 'COP',
-            exchange TEXT DEFAULT 'binance'
+            exchange TEXT DEFAULT 'binance',
+            tier TEXT DEFAULT 'FREE'
         )
         """
     )
+
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scheduled_tasks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            command TEXT NOT NULL,
+            options TEXT,
+            interval_minutes INTEGER NOT NULL,
+            last_run TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_tasks_user ON scheduled_tasks(user_id)")
 
     cur.execute(
         """
@@ -312,27 +328,94 @@ def set_user_currency(user_id: str, currency: str):
     finally:
         conn.close()
 
-def get_user_exchange(user_id: str) -> str:
-    """Retorna el exchange preferido del usuario, default 'binance'."""
+def get_user_tier(user_id: str) -> str:
+    """Retorna el tier del usuario (FREE, PRO, WHALE, ADMIN)."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
-        cur.execute("SELECT exchange FROM user_preferences WHERE user_id = ?", (str(user_id),))
+        cur.execute("SELECT tier FROM user_preferences WHERE user_id = ?", (str(user_id),))
         row = cur.fetchone()
-        return row[0] if row and row[0] else "binance"
+        return row[0] if row and row[0] else "FREE"
     finally:
         conn.close()
 
-def set_user_exchange(user_id: str, exchange: str):
-    """Establece el exchange preferido del usuario."""
+def set_user_tier(user_id: str, tier: str):
+    """Establece el tier del usuario."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        cur.execute(
+            "INSERT INTO user_preferences (user_id, tier) VALUES (?, ?) "
+            "ON CONFLICT(user_id) DO UPDATE SET tier=excluded.tier",
+            (str(user_id), tier.upper())
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+# --- Automatizaciones (Scheduled Tasks) ---
+
+def add_scheduled_task(user_id: str, command: str, options: str, interval: int) -> int:
+    """Guarda una nueva tarea programada. Retorna el ID."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        cur.execute(
+            "INSERT INTO scheduled_tasks (user_id, command, options, interval_minutes, created_at) VALUES (?,?,?,?,?)",
+            (str(user_id), command.lower(), options, interval, ts)
+        )
+        last_id = cur.lastrowid
+        conn.commit()
+        return last_id
+    finally:
+        conn.close()
+
+def get_user_tasks(user_id: str):
+    """Retorna lista de tareas de un usuario."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT * FROM scheduled_tasks WHERE user_id = ?", (str(user_id),))
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+def delete_task(task_id: int, user_id: str = None) -> bool:
+    """Borra una tarea. Si se pasa user_id, se verifica propiedad."""
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     try:
-        cur.execute(
-            "INSERT INTO user_preferences (user_id, exchange) VALUES (?, ?) "
-            "ON CONFLICT(user_id) DO UPDATE SET exchange=excluded.exchange",
-            (str(user_id), exchange.lower())
-        )
+        if user_id:
+            cur.execute("DELETE FROM scheduled_tasks WHERE id = ? AND user_id = ?", (task_id, str(user_id)))
+        else:
+            cur.execute("DELETE FROM scheduled_tasks WHERE id = ?", (task_id,))
+        success = cur.rowcount > 0
+        conn.commit()
+        return success
+    finally:
+        conn.close()
+
+def get_all_active_tasks():
+    """Retorna todas las tareas para re-agendar al reiniciar."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    try:
+        cur.execute("SELECT * FROM scheduled_tasks")
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+def update_task_last_run(task_id: int):
+    """Actualiza timestamp de última ejecución."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    try:
+        cur.execute("UPDATE scheduled_tasks SET last_run = ? WHERE id = ?", (ts, task_id))
         conn.commit()
     finally:
         conn.close()
