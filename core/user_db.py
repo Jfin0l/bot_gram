@@ -62,6 +62,17 @@ def init_user_db():
         """
     )
 
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS user_exceptions (
+            user_id TEXT PRIMARY KEY,
+            expiration TEXT NOT NULL,
+            type TEXT DEFAULT 'PROMO',
+            timestamp TEXT NOT NULL
+        )
+        """
+    )
+
     conn.commit()
     conn.close()
 
@@ -157,13 +168,53 @@ def get_next_in_waitlist() -> str:
         conn.close()
 
 
+def is_user_vip(user_id: str) -> bool:
+    """Verifica si el usuario tiene una excepción activa (VIP)."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        cur.execute("SELECT 1 FROM user_exceptions WHERE user_id = ? AND expiration > ?", (str(user_id), now))
+        return cur.fetchone() is not None
+    finally:
+        conn.close()
+
+
+def set_user_exception(user_id: str, days: int = 0, exc_type: str = "PROMO"):
+    """
+    Agrega una excepción temporal al usuario. 
+    Si days=0 se asume permanente (ej. Admin), pero se guarda como fecha lejana.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    # Si days es 0 o muy grande (admin), ponemos año 2099
+    if days <= 0 or days > 3650:
+        exp = datetime(2099, 12, 31).isoformat()
+    else:
+        exp = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
+        
+    try:
+        cur.execute(
+            "INSERT OR REPLACE INTO user_exceptions (user_id, expiration, type, timestamp) VALUES (?,?,?,?)",
+            (str(user_id), exp, exc_type, ts)
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def check_daily_limits(user_id: str, max_users: int = 30, max_requests_per_user: int = 15) -> tuple[bool, str]:
     """
     Verifica si el user_id puede ejecutar un comando hoy.
     """
     if is_blacklisted(user_id):
         return False, "BANNED"
-
+    
+    # Bypass para VIPs/Admins
+    if is_user_vip(user_id):
+        return True, "VIP"
+        
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
     today_prefix = datetime.now(timezone.utc).isoformat()[:10]

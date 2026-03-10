@@ -509,6 +509,32 @@ async def cmd_unban(update, context):
     await context.bot.send_message(chat_id=update.effective_chat.id, text=f"✅ Usuario <b>{user_to_unban}</b> ha sido removido de la lista negra.", parse_mode=ParseMode.HTML)
 
 
+async def cmd_exc(update, context):
+    """Comando /exc <user_id> <dias|admin> — Agrega excepción (VIP) (Solo Admin)."""
+    if str(update.effective_chat.id) != str(OWNER_ID):
+        return
+
+    if len(context.args) < 1:
+        await context.bot.send_message(chat_id=update.effective_chat.id, text="ℹ️ Uso: <code>/exc &lt;user_id&gt; &lt;dias|admin&gt;</code>", parse_mode=ParseMode.HTML)
+        return
+
+    target_id = context.args[0]
+    days_input = context.args[1] if len(context.args) > 1 else "3" # Default 3 días
+    
+    from core.user_db import set_user_exception
+    
+    if days_input.lower() == "admin":
+        set_user_exception(target_id, days=0, exc_type="ADMIN")
+        await context.bot.send_message(chat_id=update.effective_chat.id, text=f"👑 VIP Permanente (Admin) asignado a: <b>{target_id}</b>", parse_mode=ParseMode.HTML)
+    else:
+        try:
+            days = int(days_input)
+            set_user_exception(target_id, days=days, exc_type="PROMO")
+            await context.bot.send_message(chat_id=update.effective_chat.id, text=f"⭐ Acceso VIP por <b>{days} días</b> asignado a: <b>{target_id}</b>", parse_mode=ParseMode.HTML)
+        except ValueError:
+            await context.bot.send_message(chat_id=update.effective_chat.id, text="❌ Error: El segundo parámetro debe ser un número de días o 'admin'.")
+
+
 # ==============================
 # MAIN
 # ==============================
@@ -517,7 +543,8 @@ def main():
     """Inicia el bot Telegram. If telegram lib not available, block until stopped."""
     logger.info("Iniciando bot...")
 
-    # Inicializa DB de usuarios
+    # Inicializa DBs
+    db.init_db()
     init_user_db()
     if not TELEGRAM_AVAILABLE:
         logger.warning(
@@ -572,6 +599,7 @@ def main():
     app.add_handler(CommandHandler("cso", cmd_cso))
     app.add_handler(CommandHandler("ban", cmd_ban))
     app.add_handler(CommandHandler("unban", cmd_unban))
+    app.add_handler(CommandHandler("exc", cmd_exc))
     app.add_handler(CommandHandler("config", cmd_config))
     app.add_handler(CommandHandler("moneda", cmd_config))
     app.add_handler(CallbackQueryHandler(cmd_config, pattern="^config_main$"))

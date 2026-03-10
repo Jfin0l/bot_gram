@@ -33,6 +33,7 @@ def _env_float(key: str, default: float) -> float:
 # Basic app-level defaults
 WINDOW_SECONDS = _env_int("WINDOW_SECONDS", 6 * 3600)
 INGEST_MIN_ROWS = _env_int("INGEST_MIN_ROWS", 100)
+DEFAULT_TZ = os.getenv("DEFAULT_TZ", "America/Bogota")
 
 
 # Detector defaults. These are intentionally simple threshold-based configs.

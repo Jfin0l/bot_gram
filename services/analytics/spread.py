@@ -6,6 +6,8 @@ from core.ram_window import get_global
 from core import db as core_db
 from core.processor import format_num, format_vol, ai_meta
 from types import SimpleNamespace
+from core.app_config import DEFAULT_TZ
+import pytz
 
 
 def _get_latest_snapshot(pair: str):
@@ -115,15 +117,22 @@ def _format_heat_map(pair: str, metrics: List[dict], period_name: str) -> str:
 
     lines = [f"📊 <b>MAPA DE SPREAD {period_name.upper()}</b> ({pair})", ""]
 
-    # Agrupar por bloques (ej. 3h)
+    # Agrupar por bloques (ej. 1h)
     blocks = {}
+    local_tz = pytz.timezone(DEFAULT_TZ)
+    
     for m in metrics:
-        # Simplistic: just extract hour or date
-        ts = datetime.fromisoformat(m['timestamp'])
+        # El timestamp viene en ISO UTC desde la DB
+        utc_dt = datetime.fromisoformat(m['timestamp'].replace('Z', '+00:00'))
+        if utc_dt.tzinfo is None:
+            utc_dt = utc_dt.replace(tzinfo=pytz.UTC)
+            
+        local_dt = utc_dt.astimezone(local_tz)
+        
         if period_name == 'dia':
-            label = ts.strftime("%H:00")
+            label = local_dt.strftime("%H:00")
         else:  # semana
-            label = ts.strftime("%a %d")
+            label = local_dt.strftime("%a %d")
         
         if label not in blocks:
             blocks[label] = []

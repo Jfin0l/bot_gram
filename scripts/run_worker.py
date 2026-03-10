@@ -58,6 +58,10 @@ def _ingest_loop(window: ram_window.RamWindow, stop_event: threading.Event, inte
 def start_worker(fetch_interval: int = 300, snapshot_interval: int = 600, ingest_interval: int = 60, ingest_min_rows: int = 100):
     """Start scheduler, RAM window, aggregator and ingest thread."""
     global _ingest_thread, _ingest_stop_event, _sched, _window
+    
+    # Asegurar tablas DB
+    from core import db
+    db.init_db()
     if _sched is not None:
         return
     _sched = start_scheduler(

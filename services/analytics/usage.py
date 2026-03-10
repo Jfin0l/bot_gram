@@ -70,6 +70,20 @@ def generate_cso_report() -> str:
             elif cmd in ['/merchant', '/volatilidad']:
                 dolor_usuario = "Buscar seguridad en los vendedores"
 
+        # 4.5. Análisis de Interés por Exchange
+        cur.execute('''
+            SELECT exchange, COUNT(*) as count
+            FROM (
+                SELECT json_extract(details, '$.exchange') as exchange
+                FROM bot_usage_logs
+                WHERE timestamp >= ? AND details IS NOT NULL
+            )
+            WHERE exchange IS NOT NULL
+            GROUP BY exchange
+            ORDER BY count DESC
+        ''', (week_ago,))
+        exchange_interest = cur.fetchall()
+
         # 5. Detección de Errores (cuantos usuarios causan errores seguido)
         cur.execute('''
             SELECT COUNT(*) 
@@ -141,6 +155,12 @@ def generate_cso_report() -> str:
         f"• <b>Índice de Reserva (Hoarding): {hoarders_count} usuarios</b> (Cuidan sus últimas consultas)",
         f"• Cupo lleno (30 max): {dias_llenos} de los últimos 7 días",
     ]
+    
+    if exchange_interest:
+        lines.append("\n<b>⚡ Interés por Exchange (Top)</b>")
+        for ex, count in exchange_interest:
+            lines.append(f"• {ex.capitalize()}: {count} consultas")
+
     if dias_llenos > 0:
         lines.append(
             f"  └ <i>Métrica Estrella:</i> El cupo se llenó en promedio a las {hora_promedio_lleno} UTC.")
@@ -164,7 +184,7 @@ def generate_cso_report() -> str:
             "El usuario sufre por velocidad. Agregar *modo Alertas Automáticas* para ahorrarles llamadas manuales.")
     elif "Calcular la comisión/spread" in dolor_usuario:
         lines.append(
-            "El usuario calcula rentabilidad. Agregar *función `/calculadora <monto>`* para mostrar ganancia neta restando fees de Binance y envíos.")
+            "El usuario calcula rentabilidad. Agregar función <code>/calculadora monto</code> para mostrar ganancia neta restando fees de Binance y envíos.")
     else:
         lines.append(
             "El usuario teme estafas. Potenciar *score de comerciantes* con `/merchant info <id>` para validar buena fe.")

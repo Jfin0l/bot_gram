@@ -42,6 +42,11 @@ def rate_limited(command_name: str):
             user_id = str(update.effective_user.id)
             chat_id = update.effective_chat.id
             start_time = time.perf_counter()
+            
+            # Obtener exchange actual del usuario para métricas
+            from core.user_db import get_user_exchange
+            current_exch = get_user_exchange(user_id)
+            usage_details = {"exchange": current_exch}
 
             # Chequear límites y slots dinámicos
             can_proceed, reason = check_daily_limits(user_id)
@@ -77,7 +82,7 @@ def rate_limited(command_name: str):
                     logger.error(
                         f"Error enviando mensaje limit/waitlist a {chat_id}: {e}")
 
-                log_usage(user_id, command_name, result_status, response_time)
+                log_usage(user_id, command_name, result_status, response_time, details=usage_details)
                 return
 
             # Si el usuario puede proceder, ejecutamos la función original
@@ -91,7 +96,7 @@ def rate_limited(command_name: str):
                 raise e  # Throw it so the standard error handler catches it
             finally:
                 res_time = time.perf_counter() - start_time
-                log_usage(user_id, command_name, result_status, res_time)
+                log_usage(user_id, command_name, result_status, res_time, details=usage_details)
 
                 # Checkear si acaba de consumir su solicitud 15 exactament!
                 import sqlite3

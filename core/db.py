@@ -144,6 +144,21 @@ def _ensure_db():
         )
         """
     )
+    
+    # Tabla legacy/analytics para promedios por hora necesarios en /merchant
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS merchant_stats (
+            merchant TEXT,
+            pair TEXT,
+            side TEXT,
+            volume_usdt REAL,
+            avg_price REAL,
+            ad_count INTEGER,
+            hour INTEGER,
+            date TEXT,
+            UNIQUE(merchant, pair, side, date, hour)
+        )
+    """)
 
     conn.commit()
     conn.close()

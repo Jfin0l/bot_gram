@@ -103,7 +103,17 @@ def _fetch_merchant_stats(merchant_name: str, pair: str) -> Optional[dict]:
     hora_pico = c.fetchone()
     conn.close()
 
-    hora_pico_str = f"{hora_pico[0]}:00" if hora_pico else "N/D"
+    import pytz
+    from core.app_config import DEFAULT_TZ
+    
+    hora_pico_str = "N/D"
+    if hora_pico:
+        h_utc = hora_pico[0]
+        # Crear un datetime en UTC con esa hora hoy
+        now_utc = datetime.now(timezone.utc).replace(hour=h_utc, minute=0, second=0, microsecond=0)
+        local_tz = pytz.timezone(DEFAULT_TZ)
+        h_local = now_utc.astimezone(local_tz).hour
+        hora_pico_str = f"{h_local:02d}:00"
 
     return {
         'merchant': clean_name,
@@ -227,14 +237,23 @@ def _build_merchant_profile(name: str, pair: str) -> str:
     sides = []
 
     with rw.lock:
-        dq = rw.merchant_index.get(name, [])
-        for ts, ad in dq:
-            if ts < cutoff:
-                continue
-            count += 1
-            vol += ad.quantity
-            prices.append(ad.price)
-            sides.append(ad.side)
+        dq = rw.merchant_index.get(name)
+        if dq is None:
+            # Búsqueda insensible a mayúsculas si no hay match exacto
+            for k in rw.merchant_index.keys():
+                if k.lower() == name.lower():
+                    dq = rw.merchant_index[k]
+                    name = k # Actualizar al nombre real del exchange
+                    break
+        
+        if dq:
+            for ts, ad in dq:
+                if ts < cutoff:
+                    continue
+                count += 1
+                vol += ad.quantity
+                prices.append(ad.price)
+                sides.append(ad.side)
 
     if count == 0:
         return f"⚠️ Merchant `{name}` sin actividad en la ultima hora"
