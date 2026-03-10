@@ -752,10 +752,7 @@ def main():
     except Exception:
         logger.exception("Could not delete webhook (continuing)")
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    # Inicia sistema de automatizaciones
-    start_autos(app.bot)
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(start_autos).build()
 
     async def _log_all_updates(update, context):
         try:

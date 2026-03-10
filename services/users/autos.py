@@ -62,8 +62,9 @@ async def _run_scheduled_job(bot, user_id, command, options, task_id):
     except Exception as e:
         logger.exception(f"Error ejecutando tarea automática {task_id} para {user_id}: {e}")
 
-def start_autos(bot):
+async def start_autos(application):
     """Inicia el planificador y carga las tareas existentes."""
+    bot = application.bot
     if not _SCHEDULER.running:
         _SCHEDULER.start()
         logger.info("AsyncIOScheduler para automatizaciones iniciado.")
