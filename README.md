@@ -101,9 +101,10 @@ graph TD
 - `adapters/` - Componentes legados de red (en migración a `exchanges/`).
 
 ## 🛠️ Notas Metodológicas
-- **Lógica de Spread:** Calculado como `((Compra - Venta) / Venta) * 100` desde la perspectiva del merchant.
+- **Lógica de Spread:** Calculado professionalmente como `((Venta - Compra) / Compra) * 100` (Markup del Arbitrajista).
 - **Paginación:** El bot realiza capturas de 100 anuncios por lado (5 páginas de 20 anuncios) para garantizar una muestra estadística válida.
 - **Slots Dinámicos:** El sistema gestiona 30 "asientos" de usuarios activos para proteger la integridad del servidor.
+- **Persistencia de Datos:** El sistema mantiene un historial detallado de spreads y métricas por **30 días**, garantizando la continuidad de los reportes `/spread dia/semana` incluso tras reinicios.
 
 ---
 *Desarrollado por FastMoney Systems — Inteligencia de Mercados P2P.*

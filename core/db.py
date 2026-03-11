@@ -112,6 +112,23 @@ def _ensure_db():
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_metrics_pair ON market_metrics_history(pair)")
 
+    # Tabla para persistencia de /spread (Mapa de calor y análisis histórico)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS spread_analysis (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pair TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            avg_cost REAL,
+            avg_revenue REAL,
+            spread_pct REAL,
+            details TEXT
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_spread_ts ON spread_analysis(timestamp)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_spread_pair ON spread_analysis(pair)")
+
     # Tabla para historial de anuncios de comerciantes (Top 50)
     cur.execute(
         """
@@ -485,3 +502,54 @@ def fetch_metrics_history(pair: str, metric_name: str, since_hours: int = 24):
     rows = cur.fetchall()
     conn.close()
     return [{"timestamp": r[0], "value": r[1], "details": json.loads(r[2]) if r[2] else None} for r in rows]
+
+
+def save_spread_entry(pair: str, cost: float, revenue: float, spread: float, details: dict = None):
+    """Guarda una entrada en el historial de spread para persistencia a largo plazo."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    det_json = json.dumps(details, ensure_ascii=False) if details else None
+    cur.execute(
+        "INSERT INTO spread_analysis (pair, timestamp, avg_cost, avg_revenue, spread_pct, details) VALUES (?,?,?,?,?,?)",
+        (pair, ts, cost, revenue, spread, det_json)
+    )
+    conn.commit()
+    conn.close()
+
+
+def cleanup_old_data(days: int = 30):
+    """Elimina datos antiguos para mantener la DB ligera (retención de 30 días)."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    try:
+        # Limpiar spreads antiguos
+        cur.execute("DELETE FROM spread_analysis WHERE timestamp < ?", (cutoff,))
+        # Limpiar métricas antiguas
+        cur.execute("DELETE FROM market_metrics_history WHERE timestamp < ?", (cutoff,))
+        # Limpiar logs de uso antiguos
+        cur.execute("DELETE FROM bot_usage_logs WHERE timestamp < ?", (cutoff,))
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def fetch_spread_analysis(pair: str, hours: int = 24):
+    """Obtiene el historial de spread_analysis."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    cur.execute(
+        "SELECT timestamp, spread_pct, avg_cost, avg_revenue FROM spread_analysis "
+        "WHERE pair = ? AND timestamp >= ? ORDER BY timestamp ASC",
+        (pair, cutoff)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return [{"timestamp": r[0], "value": r[1], "cost": r[2], "revenue": r[3]} for r in rows]

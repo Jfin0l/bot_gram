@@ -45,9 +45,18 @@ def start_scheduler(config, fetch_interval: int = 300, snapshot_interval: int = 
         except Exception as e:
             log.exception(f"Error en job_merchant_stats: {e}")
 
+    def job_cleanup_db():
+        log.info("Scheduler: Ejecutando limpieza de DB (retención 30 días)...")
+        try:
+            from core.db import cleanup_old_data
+            cleanup_old_data(days=30)
+        except Exception as e:
+            log.exception(f"Error en job_cleanup_db: {e}")
+
     sched.add_job(job_fetch, "interval", seconds=fetch_interval, id="fetch_job")
     sched.add_job(job_snapshot, "interval", seconds=snapshot_interval, id="snapshot_job")
     sched.add_job(job_merchant_stats, "interval", hours=1, id="merchant_stats_job")
+    sched.add_job(job_cleanup_db, "cron", hour=3, id="cleanup_job") # A las 3 AM
 
     sched.start()
     log.info(f"Scheduler iniciado (fetch every {fetch_interval}s, snapshot every {snapshot_interval}s)")

@@ -16,20 +16,20 @@ def _compute_bucket(snaps):
     total_volumes = []
 
     for s in snaps:
-        # Ordenar ads por side
-        buys = sorted([ad for ad in s.ads if ad.side == 'buy'],
-                      key=lambda x: x.price, reverse=True)
-        sells = sorted([ad for ad in s.ads if ad.side ==
-                       'sell'], key=lambda x: x.price)
+        # side='buy' (Merchants Selling): Costo. Mejor: Menor precio. (Ascendente)
+        m_selling = sorted([ad for ad in s.ads if ad.side == 'buy'], key=lambda x: x.price)
+        
+        # side='sell' (Merchants Buying): Venta. Mejor: Mayor precio. (Descendente)
+        m_buying = sorted([ad for ad in s.ads if ad.side == 'sell'], key=lambda x: x.price, reverse=True)
 
         # Calcular spread promedio de los primeros 50 para este snapshot
-        n_limit = min(50, len(buys), len(sells))
+        n_limit = min(50, len(m_selling), len(m_buying))
         if n_limit > 0:
             sp_list = []
             for i in range(n_limit):
-                if sells[i].price > 0:
-                    sp_list.append(
-                        ((buys[i].price - sells[i].price) / sells[i].price) * 100.0)
+                if m_selling[i].price > 0:
+                    # Profit = (Ingreso - Costo) / Costo
+                    sp_list.append(((m_buying[i].price - m_selling[i].price) / m_selling[i].price) * 100.0)
             if sp_list:
                 snapshot_spreads.append(sum(sp_list) / len(sp_list))
 
@@ -62,7 +62,9 @@ def _compute_bucket(snaps):
         'spread_pct_bucket': sum(snapshot_spreads) / len(snapshot_spreads) if snapshot_spreads else 0,
         'volatility': volatility,
         'sample_count': len(prices),
-        'total_exposed_vol': sum(total_volumes) / len(total_volumes) if total_volumes else 0
+        'total_exposed_vol': sum(total_volumes) / len(total_volumes) if total_volumes else 0,
+        'avg_cost': mean(prices),  # Simple fallback
+        'avg_revenue': mean(prices) # Simple fallback
     }
 
 
@@ -123,6 +125,14 @@ class Aggregator:
                     pair, 'avg_spread_top50', metrics['spread_pct_bucket'])
                 db.save_market_metric(
                     pair, 'total_volume', metrics['total_exposed_vol'])
+                
+                # Persistencia dedicada para historial de spread
+                db.save_spread_entry(
+                    pair, 
+                    metrics['avg_cost'], 
+                    metrics['avg_revenue'], 
+                    metrics['spread_pct_bucket']
+                )
 
 
 _GLOBAL_AGG: Aggregator = None
