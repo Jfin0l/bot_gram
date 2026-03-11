@@ -23,30 +23,32 @@ def _get_latest_snapshot(pair: str):
 
 
 def _ordered_lists(snapshot):
-    """Ordena compradores y vendedores según el libro de órdenes.
+    """Ordena compradores y vendedores según la vista del cliente en Binance.
     
-    - side='buy' (Binance BUY): Mercaderes VENDIENDO (tú compras). Mejor: Menor precio.
-    - side='sell' (Binance SELL): Mercaderes COMPRANDO (tú vendes). Mejor: Mayor precio.
+    - side='buy' (Tab Compra): Mercaderes VENDIENDO. Tú compras (Costo).
+      El mejor es el de MENOR precio (Ascendente).
+    - side='sell' (Tab Venta): Mercaderes COMPRANDO. Tú vendes (Ingreso).
+      El mejor es el de MAYOR precio (Descendente).
     """
-    m_selling = [ad for ad in snapshot.ads if ad.side == 'buy']
-    m_buying = [ad for ad in snapshot.ads if ad.side == 'sell']
+    m_sellers = [ad for ad in snapshot.ads if ad.side == 'buy']
+    m_buyers = [ad for ad in snapshot.ads if ad.side == 'sell']
 
-    # Costo (tú compras): Del más barato al más caro
-    cost_list = sorted(m_selling, key=lambda a: a.price)
+    # Tab Compra: 3676, 3680, 3688...
+    buys_sorted = sorted(m_sellers, key=lambda a: a.price)
     
-    # Venta (tú vendes): Del que más te paga al que menos
-    revenue_list = sorted(m_buying, key=lambda a: a.price, reverse=True)
+    # Tab Venta: 3685, 3681, 3680...
+    sells_sorted = sorted(m_buyers, key=lambda a: a.price, reverse=True)
 
-    return cost_list, revenue_list
+    return buys_sorted, sells_sorted
 
 
-def _spread_from_pair(cost_ad, revenue_ad) -> Optional[float]:
-    """Calcula spread % entre costo y venta.
-    Fórmula: ((Sellers_Price - Buyers_Price) / Buyers_Price) * 100
+def _spread_from_pair(buy_ad, sell_ad) -> Optional[float]:
+    """Calcula el Spread de Mercado entre la punta de compra y venta.
+    Fórmula: ((P_Compra - P_Venta) / P_Venta) * 100
     """
     try:
-        # Profit = (Precio de Venta - Precio de Compra) / Precio de Compra
-        return ((revenue_ad.price - cost_ad.price) / cost_ad.price) * 100
+        # Spread positivo = Mercado estable. Spread negativo = Arbitraje (Invertido).
+        return ((buy_ad.price - sell_ad.price) / sell_ad.price) * 100
     except Exception:
         return None
 
@@ -183,11 +185,11 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         return f"⚠️ No hay datos disponibles para {pair}. Inicia el worker."
 
     # Obtener listas ordenadas
-    costs, revenues = _ordered_lists(snap)
-    if not costs or not revenues:
+    buys, sells = _ordered_lists(snap)
+    if not buys or not sells:
         return "⚠️ Datos insuficientes en el snapshot actual."
 
-    max_positions = min(len(costs), len(revenues))
+    max_positions = min(len(buys), len(sells))
     token = (" ".join(args)).strip().lower() if args else ""
 
     # ===========================================
@@ -209,19 +211,19 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
     # NUEVO CASO: Filtro por Banco / Método Pago
     # ===========================================
     if token and any(c.isalpha() for c in token) and token not in ('buy', 'sell'):
-        filtered_costs = [a for a in costs if token in (a.payment_method or '').lower()]
-        filtered_revenues = [a for a in revenues if token in (a.payment_method or '').lower()]
+        filtered_buys = [a for a in buys if token in (a.payment_method or '').lower()]
+        filtered_sells = [a for a in sells if token in (a.payment_method or '').lower()]
 
-        if not filtered_costs or not filtered_revenues:
+        if not filtered_buys or not filtered_sells:
             return f"⚠️ No hay suficientes anuncios activos con el método: <b>{token}</b> en {pair}"
 
         spreads = []
         vols = []
-        for i in range(min(5, len(filtered_costs), len(filtered_revenues))):
-            sp = _spread_from_pair(filtered_costs[i], filtered_revenues[i])
+        for i in range(min(5, len(filtered_buys), len(filtered_sells))):
+            sp = _spread_from_pair(filtered_buys[i], filtered_sells[i])
             if sp is not None:
                 spreads.append(sp)
-                vols.append(filtered_costs[i].quantity + filtered_revenues[i].quantity)
+                vols.append(filtered_buys[i].quantity + filtered_sells[i].quantity)
 
         return _format_spread_result(f"Método: {token.upper()}", spreads, vols)
 
@@ -233,10 +235,10 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         spreads = []
         vols = []
         for i in range(n):
-            sp = _spread_from_pair(costs[i], revenues[i])
+            sp = _spread_from_pair(buys[i], sells[i])
             if sp is not None:
                 spreads.append(sp)
-                vols.append(costs[i].quantity + revenues[i].quantity)
+                vols.append(buys[i].quantity + sells[i].quantity)
 
         return _format_spread_result("Primeras 5 posiciones", spreads, vols, 1, n)
 
@@ -248,20 +250,19 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         if idx < 0 or idx >= max_positions:
             return f"⚠️ Posición {token} fuera de rango (máx: {max_positions})"
 
-        sp = _spread_from_pair(costs[idx], revenues[idx])
+        sp = _spread_from_pair(buys[idx], sells[idx])
         if sp is None:
             return f"⚠️ No se pudo calcular spread para posición {token}"
 
-        vol = costs[idx].quantity + revenues[idx].quantity
+        vol = buys[idx].quantity + sells[idx].quantity
 
         # Mensaje específico para una posición
         return (
             f"📌 <b>Posición #{token}</b>\n"
             f"• Spread: <b>{sp:.2f}%</b>\n"
             f"• Volumen visible: <b>{format_vol(vol)} USDT</b>\n"
-            f"• Precio comp (Merchant Vende): {format_num(costs[idx].price)}\n"
-            f"• Precio vent (Merchant Compra): {format_num(revenues[idx].price)}\n"
-            f"\n💡 <i>Un spread positivo indica oportunidad de arbitraje</i>"
+            f"• Precio Compra (User): {format_num(buys[idx].price)}\n"
+            f"• Precio Venta (User): {format_num(sells[idx].price)}\n"
         ) + ai_meta({"type": "spread_position", "pos": token, "spread": sp, "vol": vol})
 
     # ===========================================
@@ -324,14 +325,14 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
             # Buscar posiciones en el rango de porcentaje
             matches = []
             for i in range(max_positions):
-                sp = _spread_from_pair(costs[i], revenues[i])
+                sp = _spread_from_pair(buys[i], sells[i])
                 if sp is None:
                     continue
                 if min_pct <= sp <= max_pct:
                     matches.append({
                         'pos': i + 1,
                         'spread': sp,
-                        'vol': costs[i].quantity + revenues[i].quantity
+                        'vol': buys[i].quantity + sells[i].quantity
                     })
 
             if not matches:
@@ -372,7 +373,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
             best_vol = 0
 
             for i in range(max_positions):
-                sp = _spread_from_pair(costs[i], revenues[i])
+                sp = _spread_from_pair(buys[i], sells[i])
                 if sp is None:
                     continue
 
@@ -381,7 +382,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
                     best_diff = diff
                     best_pos = i + 1
                     best_spread = sp
-                    best_vol = costs[i].quantity + revenues[i].quantity
+                    best_vol = buys[i].quantity + sells[i].quantity
 
             if best_pos is None:
                 return f"⚠️ No se pudo encontrar posición cercana a {target_pct}%"
@@ -442,7 +443,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
         last_pos = None
 
         for i in range(max_positions):
-            sp = _spread_from_pair(costs[i], revenues[i])
+            sp = _spread_from_pair(buys[i], sells[i])
             if sp is None:
                 continue
 
@@ -450,7 +451,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
                 positions_in_range.append({
                     'pos': i + 1,
                     'spread': sp,
-                    'vol_actual': costs[i].quantity + revenues[i].quantity
+                    'vol_actual': buys[i].quantity + sells[i].quantity
                 })
                 if first_pos is None:
                     first_pos = i + 1
@@ -463,7 +464,7 @@ def handle_spread(args: List[str], pair: str = 'USDT-COP') -> str:
             closest_diff = float('inf')
 
             for i in range(max_positions):
-                sp = _spread_from_pair(costs[i], revenues[i])
+                sp = _spread_from_pair(buys[i], sells[i])
                 if sp is None:
                     continue
                 diff = abs(sp - threshold)

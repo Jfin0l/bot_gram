@@ -16,20 +16,20 @@ def _compute_bucket(snaps):
     total_volumes = []
 
     for s in snaps:
-        # side='buy' (Merchants Selling): Costo. Mejor: Menor precio. (Ascendente)
-        m_selling = sorted([ad for ad in s.ads if ad.side == 'buy'], key=lambda x: x.price)
+        # side='buy' (Tab Compra): Mercaderes Vendiendo. Mejor: Menor precio.
+        m_sellers = sorted([ad for ad in s.ads if ad.side == 'buy'], key=lambda x: x.price)
         
-        # side='sell' (Merchants Buying): Venta. Mejor: Mayor precio. (Descendente)
-        m_buying = sorted([ad for ad in s.ads if ad.side == 'sell'], key=lambda x: x.price, reverse=True)
+        # side='sell' (Tab Venta): Mercaderes Comprando. Mejor: Mayor precio.
+        m_buyers = sorted([ad for ad in s.ads if ad.side == 'sell'], key=lambda x: x.price, reverse=True)
 
         # Calcular spread promedio de los primeros 50 para este snapshot
-        n_limit = min(50, len(m_selling), len(m_buying))
+        n_limit = min(50, len(m_sellers), len(m_buyers))
         if n_limit > 0:
             sp_list = []
             for i in range(n_limit):
-                if m_selling[i].price > 0:
-                    # Profit = (Ingreso - Costo) / Costo
-                    sp_list.append(((m_buying[i].price - m_selling[i].price) / m_selling[i].price) * 100.0)
+                if m_buyers[i].price > 0:
+                    # Market Spread = (Ask - Bid) / Bid
+                    sp_list.append(((m_sellers[i].price - m_buyers[i].price) / m_buyers[i].price) * 100.0)
             if sp_list:
                 snapshot_spreads.append(sum(sp_list) / len(sp_list))
 
@@ -54,6 +54,11 @@ def _compute_bucket(snaps):
     var = sum((p - mean) ** 2 for p in prices) / max(1, len(prices))
     volatility = math.sqrt(var)
 
+    # Calcular promedios para persistencia detallada
+    # Usamos el promedio de las mejores puntas registradas en cada snapshot
+    avg_cost = mean([mean([ad.price for ad in sorted([a for a in s.ads if a.side=='buy'], key=lambda x: x.price)[:50]]) for s in snaps if any(a.side=='buy' for a in s.ads)]) if snaps else mean(prices)
+    avg_revenue = mean([mean([ad.price for ad in sorted([a for a in s.ads if a.side=='sell'], key=lambda x: x.price, reverse=True)[:50]]) for s in snaps if any(a.side=='sell' for a in s.ads)]) if snaps else mean(prices)
+
     return {
         'avg_price': avg_price,
         'min_price': min_price,
@@ -63,8 +68,8 @@ def _compute_bucket(snaps):
         'volatility': volatility,
         'sample_count': len(prices),
         'total_exposed_vol': sum(total_volumes) / len(total_volumes) if total_volumes else 0,
-        'avg_cost': mean(prices),  # Simple fallback
-        'avg_revenue': mean(prices) # Simple fallback
+        'avg_cost': avg_cost,
+        'avg_revenue': avg_revenue
     }
 
 
