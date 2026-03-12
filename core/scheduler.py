@@ -53,9 +53,44 @@ def start_scheduler(config, fetch_interval: int = 300, snapshot_interval: int = 
         except Exception as e:
             log.exception(f"Error en job_cleanup_db: {e}")
 
+    def job_collect_spread():
+        log.info("Scheduler: Recolectando datos de spread para histórico...")
+        try:
+            from services.analytics.spread import _get_latest_snapshot, _ordered_lists, _spread_from_pair
+            from core.db import save_spread_analysis
+            from statistics import mean
+            
+            for pair in config.get('pares', []):
+                snap = _get_latest_snapshot(pair)
+                if not snap: continue
+                
+                buys, sells = _ordered_lists(snap)
+                n = min(50, len(buys), len(sells)) # Usamos top 50 para el histórico
+                spreads = []
+                costs = []
+                revenues = []
+                
+                for i in range(n):
+                    sp = _spread_from_pair(buys[i], sells[i])
+                    if sp is not None:
+                        spreads.append(sp)
+                        costs.append(buys[i].price)
+                        revenues.append(sells[i].price)
+                
+                if spreads:
+                    save_spread_analysis(
+                        pair=pair,
+                        spread_pct=mean(spreads),
+                        avg_cost=mean(costs),
+                        avg_revenue=mean(revenues)
+                    )
+        except Exception as e:
+            log.exception(f"Error en job_collect_spread: {e}")
+
     sched.add_job(job_fetch, "interval", seconds=fetch_interval, id="fetch_job")
     sched.add_job(job_snapshot, "interval", seconds=snapshot_interval, id="snapshot_job")
     sched.add_job(job_merchant_stats, "interval", hours=1, id="merchant_stats_job")
+    sched.add_job(job_collect_spread, "interval", hours=1, id="spread_history_job")
     sched.add_job(job_cleanup_db, "cron", hour=3, id="cleanup_job") # A las 3 AM
 
     sched.start()

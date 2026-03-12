@@ -572,6 +572,20 @@ def fetch_spread_analysis(pair: str, hours: int = 24):
     return [{"timestamp": r[0], "value": r[1], "cost": r[2], "revenue": r[3]} for r in rows]
 
 
+def save_spread_analysis(pair: str, spread_pct: float, avg_cost: float, avg_revenue: float, details: str = ""):
+    """Guarda un punto de datos de análisis de spread."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    cur.execute(
+        "INSERT INTO spread_analysis (pair, timestamp, spread_pct, avg_cost, avg_revenue, details) VALUES (?,?,?,?,?,?)",
+        (pair, ts, spread_pct, avg_cost, avg_revenue, details)
+    )
+    conn.commit()
+    conn.close()
+
+
 def save_donation(user_id: str, amount: float, out_trade_no: str, currency: str = 'USDT'):
     """Registra una nueva intención de donación."""
     _ensure_db()
@@ -584,6 +598,27 @@ def save_donation(user_id: str, amount: float, out_trade_no: str, currency: str 
     )
     conn.commit()
     conn.close()
+
+
+def get_donation_by_trade_no(out_trade_no: str):
+    """Busca una donación por su número de orden."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM donations WHERE out_trade_no = ?", (out_trade_no,))
+    row = cur.fetchone()
+    conn.close()
+    if not row:
+        return None
+    # id, user_id, amount, currency, status, out_trade_no, transaction_id, timestamp
+    return {
+        "id": row[0],
+        "user_id": row[1],
+        "amount": row[2],
+        "currency": row[3],
+        "status": row[4],
+        "out_trade_no": row[5]
+    }
 
 
 def update_donation_status(out_trade_no: str, status: str, transaction_id: str = None):

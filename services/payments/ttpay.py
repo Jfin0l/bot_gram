@@ -39,7 +39,7 @@ class TTPayService:
         encrypted = cipher.encrypt(padded_data)
         return base64.b64encode(encrypted).decode('utf-8')
 
-    def create_order(self, amount: float, user_id: str, description: str = "Donación FastMoney Bot") -> Optional[Dict[str, Any]]:
+    def create_order(self, amount: float, user_id: str, chain: str = "TRON", description: str = "Donación FastMoney Bot") -> Optional[Dict[str, Any]]:
         """
         Crea una orden en TTPay y devuelve la URL de pago.
         """
@@ -56,7 +56,7 @@ class TTPayService:
             "out_trade_no": out_trade_no,
             "expire_second": 3600,
             "amount": amount,
-            "chain": "TRON",
+            "chain": chain,
             "currency": "USDT",
             "to_address": "",
             "attach": str(user_id),
