@@ -42,8 +42,8 @@ class TTPayService:
         Crea una orden en TTPay y devuelve la URL de pago.
         """
         nonce = self._generate_nonce()
-        # Probar con segundos (10 dígitos) como en el ejemplo
-        timestamp = str(int(time.time()))
+        # TTPay espera timestamp en milisegundos (13 dígitos) según error 104
+        timestamp = str(int(time.time() * 1000))
         out_trade_no = f"PAY-{user_id}-{int(time.time())}"
         
         # Cuerpo del mensaje
@@ -64,16 +64,17 @@ class TTPayService:
             "order_type": "platform_order"
         }
         
-        # Construir string de firma: URL\nTimestamp\nNonce\nBody
+        # Construir string de firma: URL\n [espacio]Timestamp\n [espacio]Nonce\n [espacio]Body
+        # Nota: La documentación muestra un espacio literal después del \n
         path = "/v1/transaction/prepayment"
         body_json = json.dumps(body, separators=(',', ':'))
-        signature_base = f"{path}\n{timestamp}\n{nonce}\n{body_json}"
+        signature_base = f"{path}\n {timestamp}\n {nonce}\n {body_json}"
         
         logger.debug(f"Signature Base String: [{signature_base.replace('\n', '\\n')}]")
         
         signature = self._encrypt_signature(signature_base)
         
-        # Header de Autorización sin espacios tras comas
+        # Header de Autorización estrictamente sin espacios tras comas
         auth_header = (
             f"TTPAY-AES-256-ECB app_id={self.app_id},"
             f"mch_id={self.mch_id},nonce_str={nonce},"
