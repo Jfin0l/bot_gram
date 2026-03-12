@@ -21,9 +21,11 @@ class TTPayService:
         if not all([self.app_id, self.mch_id, self.secret_key]):
              logger.warning("Credenciales de TTPay incompletas en el archivo .env")
 
-    def _generate_nonce(self) -> str:
-        """Genera un nonce de 32 bits aleatorio."""
-        return hashlib.md5(str(time.time()).encode()).hexdigest().upper()
+    def _generate_nonce(self, length: int = 32) -> str:
+        """Genera un nonce alfanumérico aleatorio similar al ejemplo en Java."""
+        import random
+        chars = "ABCDEFGHJKMNPQRSTWXYZabcdefhijkmnprstwxyz2345678"
+        return ''.join(random.choice(chars) for _ in range(length))
 
     def _encrypt_signature(self, signature_str: str) -> str:
         """
@@ -41,8 +43,8 @@ class TTPayService:
         """
         Crea una orden en TTPay y devuelve la URL de pago.
         """
-        nonce = self._generate_nonce()
-        # TTPay espera timestamp en milisegundos (13 dígitos) según error 104
+        nonce = self._generate_nonce(32)
+        # TTPay espera timestamp en milisegundos (13 dígitos)
         timestamp = str(int(time.time() * 1000))
         out_trade_no = f"PAY-{user_id}-{int(time.time())}"
         
@@ -64,17 +66,17 @@ class TTPayService:
             "order_type": "platform_order"
         }
         
-        # Construir string de firma: URL\n [espacio]Timestamp\n [espacio]Nonce\n [espacio]Body
-        # Nota: La documentación muestra un espacio literal después del \n
+        # Construir string de firma: URL\nTimestamp\nNonce\nBody
+        # Basado en el ejemplo Java: SIN espacios tras los saltos de línea
         path = "/v1/transaction/prepayment"
         body_json = json.dumps(body, separators=(',', ':'))
-        signature_base = f"{path}\n {timestamp}\n {nonce}\n {body_json}"
+        signature_base = f"{path}\n{timestamp}\n{nonce}\n{body_json}"
         
         logger.debug(f"Signature Base String: [{signature_base.replace('\n', '\\n')}]")
         
         signature = self._encrypt_signature(signature_base)
         
-        # Header de Autorización estrictamente sin espacios tras comas
+        # Header de Autorización sin espacios tras las comas
         auth_header = (
             f"TTPAY-AES-256-ECB app_id={self.app_id},"
             f"mch_id={self.mch_id},nonce_str={nonce},"
