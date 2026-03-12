@@ -63,30 +63,46 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+API_NAME="api_gram"
+
 # 6. Lógica de PM2
 function start_app() {
+    # Proceso 1: Bot de Telegram
     pm2 describe $APP_NAME > /dev/null 2>&1
     if [ $? -eq 0 ]; then
-        print_status "El proceso $APP_NAME ya existe. Recargando para Hot-fix..."
+        print_status "Recargando Bot ($APP_NAME)..."
         pm2 reload $APP_NAME
     else
-        print_status "Iniciando nuevo proceso $APP_NAME en PM2..."
-        pm2 start scripts/run_bot.py --name $APP_NAME --interpreter python3
+        print_status "Iniciando Bot ($APP_NAME)..."
+        pm2 start scripts/run_bot.py --name $APP_NAME --interpreter ./.venv/bin/python3
     fi
+
+    # Proceso 2: API FastAPI (Uvicorn)
+    pm2 describe $API_NAME > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        print_status "Recargando API ($API_NAME)..."
+        pm2 reload $API_NAME
+    else
+        print_status "Iniciando API ($API_NAME)..."
+        # Usamos el python del venv directamente para ejecutar uvicorn como módulo
+        pm2 start "./.venv/bin/python3 -m uvicorn api.main:app --host 0.0.0.0 --port 8000" --name $API_NAME
+    fi
+    
     pm2 save
 }
 
 function stop_app() {
-    print_status "Deteniendo el servicio $APP_NAME..."
+    print_status "Deteniendo servicios..."
     pm2 stop $APP_NAME
+    pm2 stop $API_NAME
 }
 
 function show_logs() {
-    pm2 logs $APP_NAME
+    pm2 logs --lines 50
 }
 
 function show_status() {
-    pm2 list | grep $APP_NAME
+    pm2 list
     pm2 monit
 }
 
@@ -100,6 +116,10 @@ case "$1" in
         ;;
     status)
         show_status
+        ;;
+    restart)
+        stop_app
+        start_app
         ;;
     *)
         # Default action is deploy/start

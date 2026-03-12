@@ -129,6 +129,23 @@ def _ensure_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_spread_ts ON spread_analysis(timestamp)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_spread_pair ON spread_analysis(pair)")
 
+    # Tabla para registro de donaciones / pagos (TTPay)
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS donations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id TEXT NOT NULL,
+            amount REAL NOT NULL,
+            currency TEXT DEFAULT 'USDT',
+            status TEXT DEFAULT 'PENDING',
+            out_trade_no TEXT UNIQUE NOT NULL,
+            transaction_id TEXT,
+            timestamp TEXT NOT NULL
+        )
+        """
+    )
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_donations_user ON donations(user_id)")
+
     # Tabla para historial de anuncios de comerciantes (Top 50)
     cur.execute(
         """
@@ -553,3 +570,47 @@ def fetch_spread_analysis(pair: str, hours: int = 24):
     rows = cur.fetchall()
     conn.close()
     return [{"timestamp": r[0], "value": r[1], "cost": r[2], "revenue": r[3]} for r in rows]
+
+
+def save_donation(user_id: str, amount: float, out_trade_no: str, currency: str = 'USDT'):
+    """Registra una nueva intención de donación."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    ts = datetime.now(timezone.utc).isoformat()
+    cur.execute(
+        "INSERT INTO donations (user_id, amount, currency, out_trade_no, timestamp) VALUES (?,?,?,?,?)",
+        (user_id, amount, currency, out_trade_no, ts)
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_donation_status(out_trade_no: str, status: str, transaction_id: str = None):
+    """Actualiza el estado de una donación tras recibir el webhook."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    if transaction_id:
+        cur.execute(
+            "UPDATE donations SET status = ?, transaction_id = ? WHERE out_trade_no = ?",
+            (status, transaction_id, out_trade_no)
+        )
+    else:
+        cur.execute(
+            "UPDATE donations SET status = ? WHERE out_trade_no = ?",
+            (status, out_trade_no)
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_user_donations(user_id: str):
+    """Obtiene el historial de donaciones de un usuario."""
+    _ensure_db()
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM donations WHERE user_id = ?", (user_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return rows

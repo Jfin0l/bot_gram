@@ -39,6 +39,7 @@ from core.app_config import CONFIG
 from core.user_db import init_user_db, get_user_currency, set_user_currency
 from services.users.manager import rate_limited
 from services.users.autos import start_autos, stop_autos
+from services.users.premium import cmd_donar, cmd_planes, handle_callback_premium
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
@@ -110,6 +111,9 @@ async def cmd_help(update, context):
         "• <code>/merchant estables</code>: Ranking por spread constante.\n\n"
         "⚙️ <b>CONFIGURACIÓN</b>\n"
         "• <code>/config</code>: Selector interactivo de Mercado y Moneda.\n\n"
+        "💎 <b>PREMIUM & APOYO</b>\n"
+        "• <code>/planes</code>: Ver beneficios Pro y Roadmap.\n"
+        "• <code>/donar</code>: Apoyar el proyecto (TTPay).\n\n"
         "⏰ <b>AUTOMATIZACIÓN (PREMIUM)</b>\n"
         "• <code>/auto [cmd] [min]</code>: Programa alerta periódica.\n"
         "• <code>/my_autos</code>: Gestiona tus alertas activas.\n"
@@ -785,7 +789,11 @@ def main():
     app.add_handler(CommandHandler("exc", cmd_exc))
     app.add_handler(CommandHandler("config", cmd_config))
     app.add_handler(CommandHandler("moneda", cmd_config))
+    app.add_handler(CommandHandler("donar", cmd_donar))
+    app.add_handler(CommandHandler("planes", cmd_planes))
+
     app.add_handler(CallbackQueryHandler(cmd_config, pattern="^config_main$"))
+    app.add_handler(CallbackQueryHandler(handle_callback_premium, pattern="^[p|d]_"))
     app.add_handler(CallbackQueryHandler(cb_exchange, pattern="^ex_"))
     app.add_handler(CallbackQueryHandler(cb_currency, pattern="^curr_"))
     # Catch-all logger to help debugging when commands aren't triggering
