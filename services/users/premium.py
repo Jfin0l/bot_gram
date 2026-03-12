@@ -37,7 +37,7 @@ async def cmd_donar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     order = ttpay.create_order(amount=5.0, user_id=user_id, description=f"Café para el equipo - {name}")
     
     if order and order.get("payment_url"):
-        payment_url = f"https://ttpay.io{order.get('payment_url')}"
+        payment_url = order.get('payment_url')
         
         text = (
             f"✅ <b>¡Gracias {name}!</b>\n\n"
@@ -69,7 +69,7 @@ async def handle_callback_premium(update: Update, context: ContextTypes.DEFAULT_
     elif query.data == "d_5":
         order = ttpay.create_order(amount=5.0, user_id=user_id, description=f"Café via botón - {name}")
         if order and order.get("payment_url"):
-             payment_url = f"https://ttpay.io{order.get('payment_url')}"
+             payment_url = order.get('payment_url')
              await query.edit_message_text(
                  f"☕ <b>Donar 5 USDT</b>\n\nPresiona el botón para abrir la pasarela:",
                  reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔗 Pagar 5 USDT", url=payment_url)]]),
