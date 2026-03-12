@@ -63,15 +63,17 @@ class TTPayService:
             "order_type": "platform_order"
         }
         
-        # Construir string de firma: URL\n Timestamp\n Nonce\n Body
-        # NOTA: Según ejemplos de TTPay, parece haber un espacio después de cada \n
+        # Construir string de firma: URL\nTimestamp\nNonce\nBody
+        # Nota: Sin espacios tras \n
         path = "/v1/transaction/prepayment"
         body_json = json.dumps(body, separators=(',', ':'))
-        signature_base = f"{path}\n {timestamp}\n {nonce}\n {body_json}"
+        signature_base = f"{path}\n{timestamp}\n{nonce}\n{body_json}"
+        
+        logger.debug(f"Signature Base String: [{signature_base.replace('\n', '\\n')}]")
         
         signature = self._encrypt_signature(signature_base)
         
-        # Header de Autorización según documentación
+        # Header de Autorización según documentación (Sin espacios tras comas)
         auth_header = (
             f"TTPAY-AES-256-ECB app_id={self.app_id},"
             f"mch_id={self.mch_id},nonce_str={nonce},"
@@ -85,8 +87,12 @@ class TTPayService:
         }
         
         try:
-            response = requests.post(self.api_url, json=body, headers=headers, timeout=10)
+            logger.info(f"Enviando solicitud a TTPay ({self.api_url})...")
+            # Enviamos body_json directamente para asegurar coincidencia total
+            response = requests.post(self.api_url, data=body_json, headers=headers, timeout=10)
             res_data = response.json()
+            
+            logger.info(f"Respuesta de TTPay: {json.dumps(res_data)}")
             
             if res_data.get("code") == 0:
                 # Éxito: Guardamos en nuestra DB local como pendiente
@@ -94,7 +100,7 @@ class TTPayService:
                 db.save_donation(user_id, amount, out_trade_no)
                 return res_data.get("data")
             else:
-                 logger.error(f"Error TTPay: {res_data.get('msg')}")
+                 logger.error(f"Error TTPay (Code {res_data.get('code')}): {res_data.get('msg')}")
                  return None
         except Exception as e:
             logger.error(f"Fallo en create_order: {e}")
