@@ -39,7 +39,7 @@ async def cmd_donar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("TRC20 (Tron)", callback_data="d_net_TRON")],
-        [InlineKeyboardButton("BEP20 (BSC)", callback_data="d_net_BSC")],
+        [InlineKeyboardButton("BEP20 (BSC) ⚠️ Pendiente", callback_data="d_net_BSC")],
         [InlineKeyboardButton("Polygon", callback_data="d_net_POLYGON")],
     ]
     

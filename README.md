@@ -12,7 +12,9 @@ Terminal avanzada de análisis en tiempo real para el mercado P2P. Diseñada par
 - **Análisis de Profundidad (Depth):** Simulación de slippage para órdenes desde $1k hasta $50k filtrado por banco.
 - **Monitor de Volumen & Dominancia:** Seguimiento de rotación de capital y **Market Share** por comerciante.
 - **Sistema de Automatización (v2.2):** Programación de alertas recurrentes (`/auto`) con persistencia en DB y gestión de niveles de suscripción (SaaS Ready).
-- **Inteligencia Estratégica:** Detección de perfiles (Traders vs Monitores) e **Índice de Hoarding** (usuarios que reservan consultas por escasez).
+- **Donaciones & Premium (v2.3):** Integración con **TTPay (AES-256-ECB/GCM)** para pagos seguros en USDT (TRC20, BEP20, Polygon).
+- **Servidor Web Paralelo:** Servidor asistido por **FastAPI** para la gestión de Webhooks en tiempo real y futura API de datos.
+- **Persistent Analytics:** Nuevo motor de recolección horaria de spreads para reportes `/spread dia/semana` 100% persistentes.
 - **Pipeline Híbrido:** Datos en tiempo real desde **RAM Window** (últimas 6h) y persistencia histórica en **SQLite**.
 
 ## 🤖 Comandos Disponibles
